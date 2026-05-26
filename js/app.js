@@ -996,12 +996,20 @@ async function bootstrap() {
     document.documentElement.classList.toggle("is-mobile", isMobileLayout());
   });
 
+  const loading = $("#loading-screen");
+  const setStatus = (msg) => { if (loading) loading.textContent = msg; };
+
   try {
+    setStatus("Firebase 연결 중…");
     const app = initializeApp(firebaseConfig);
 
+    setStatus("로그인 확인 중…");
     const user = await initAuth(app);
-    await initFirestore(app);
 
+    setStatus("데이터베이스 연결 중…");
+    initFirestore(app);
+
+    setStatus("화면 준비 중…");
     updateAuthUI(user);
 
     $("#btn-google-login")?.addEventListener("click", async () => {
