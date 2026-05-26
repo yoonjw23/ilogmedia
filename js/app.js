@@ -997,7 +997,7 @@ async function bootstrap() {
 
   try {
     const { initializeApp } = await import(
-      "https://www.gstatic.com/firebasejs/11.8.1/firebase-app.js"
+      "https://www.gstatic.com/firebasejs/12.13.0/firebase-app.js"
     );
     const app = initializeApp(firebaseConfig);
 

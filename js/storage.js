@@ -30,7 +30,7 @@ let _firestoreModule = null;
 async function ensureFirestore() {
   if (_firestoreModule) return _firestoreModule;
   _firestoreModule = await import(
-    "https://www.gstatic.com/firebasejs/11.8.1/firebase-firestore.js"
+    "https://www.gstatic.com/firebasejs/12.13.0/firebase-firestore.js"
   );
   return _firestoreModule;
 }

@@ -32,20 +32,24 @@ function _notify(user) {
 
 export async function initAuth(firebaseApp) {
   const { getAuth: gAuth, onAuthStateChanged } = await import(
-    "https://www.gstatic.com/firebasejs/11.8.1/firebase-auth.js"
+    "https://www.gstatic.com/firebasejs/12.13.0/firebase-auth.js"
   );
   _auth = gAuth(firebaseApp);
   return new Promise((resolve) => {
+    let resolved = false;
     onAuthStateChanged(_auth, (user) => {
       _notify(user);
-      resolve(user);
+      if (!resolved) { resolved = true; resolve(user); }
     });
+    setTimeout(() => {
+      if (!resolved) { resolved = true; resolve(null); }
+    }, 5000);
   });
 }
 
 export async function signInWithGoogle() {
   const { GoogleAuthProvider, signInWithPopup } = await import(
-    "https://www.gstatic.com/firebasejs/11.8.1/firebase-auth.js"
+    "https://www.gstatic.com/firebasejs/12.13.0/firebase-auth.js"
   );
   const provider = new GoogleAuthProvider();
   const result = await signInWithPopup(_auth, provider);
@@ -54,7 +58,7 @@ export async function signInWithGoogle() {
 
 export async function signOut() {
   const { signOut: so } = await import(
-    "https://www.gstatic.com/firebasejs/11.8.1/firebase-auth.js"
+    "https://www.gstatic.com/firebasejs/12.13.0/firebase-auth.js"
   );
   await so(_auth);
 }
