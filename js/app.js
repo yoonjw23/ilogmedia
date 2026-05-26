@@ -1,3 +1,4 @@
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-app.js";
 import { firebaseConfig } from "./firebase-config.js";
 import { initAuth, signInWithGoogle, signOut, getCurrentUser, onAuthChange } from "./auth.js";
 import {
@@ -996,9 +997,6 @@ async function bootstrap() {
   });
 
   try {
-    const { initializeApp } = await import(
-      "https://www.gstatic.com/firebasejs/12.13.0/firebase-app.js"
-    );
     const app = initializeApp(firebaseConfig);
 
     const user = await initAuth(app);
