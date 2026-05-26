@@ -758,6 +758,26 @@ async function fetchNoembed(url) {
   }
 }
 
+/** Netlify Function으로 YouTube innertube 업로드일 조회 */
+async function fetchYoutubeDateFromFunction(videoId) {
+  if (!videoId) return undefined;
+  const ctrl = new AbortController();
+  const timer = window.setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const res = await fetch(
+      `/.netlify/functions/youtube-date?v=${encodeURIComponent(videoId)}`,
+      { signal: ctrl.signal }
+    );
+    if (!res.ok) return undefined;
+    const data = await res.json();
+    return data.ok ? data : undefined;
+  } catch {
+    return undefined;
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
 /** @param {string} url */
 async function fetchYoutubePageDate(url) {
   try {
@@ -779,12 +799,13 @@ async function fetchYoutubeMetadata(url) {
   /** @type {MediaMetadata} */
   const result = { thumbnail, type: /** @type {MediaType} */ ("youtube") };
 
-  const [oembedRes, noembed, pageDate] = await Promise.all([
+  const [oembedRes, noembed, pageDate, fnResult] = await Promise.all([
     fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`).catch(
       () => null
     ),
     fetchNoembed(url),
     fetchYoutubePageDate(url),
+    fetchYoutubeDateFromFunction(id),
   ]);
 
   if (oembedRes?.ok) {
@@ -798,7 +819,9 @@ async function fetchYoutubeMetadata(url) {
   if (noembed.thumbnail) result.thumbnail = noembed.thumbnail;
 
   result.publishedAt =
-    noembed.publishedAt || pageDate || result.publishedAt;
+    fnResult?.publishedAt || noembed.publishedAt || pageDate || result.publishedAt;
+
+  if (!result.title && fnResult?.title) result.title = fnResult.title;
 
   return result;
 }
@@ -816,7 +839,12 @@ export async function fetchPublishedDate(url) {
   if (urlDate) return urlDate;
 
   if (detectMediaType(url) === "youtube") {
-    const pageDate = await fetchYoutubePageDate(url);
+    const id = youtubeVideoId(url);
+    const [pageDate, fnResult] = await Promise.all([
+      fetchYoutubePageDate(url),
+      fetchYoutubeDateFromFunction(id),
+    ]);
+    if (fnResult?.publishedAt) return fnResult.publishedAt;
     if (pageDate) return pageDate;
   } else {
     try {
