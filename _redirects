@@ -1,0 +1,6 @@
+# /ilogmedia/* 경로를 루트로 매핑 (manifest start_url, icon 경로 등)
+/ilogmedia/icons/*  /icons/:splat  200
+/ilogmedia/js/*     /js/:splat     200
+/ilogmedia/styles/* /styles/:splat 200
+/ilogmedia/*        /:splat        200
+/ilogmedia          /              301
