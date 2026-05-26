@@ -186,7 +186,29 @@
             <strong>로그인 창 열기</strong>로 로그인하세요.
           </p>
           <div class="entry-preview__body">
-            <iframe id="entry-preview-iframe" class="entry-preview__iframe" title="콘텐츠 미리보기" hidden allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
+            <div class="entry-preview__video-wrap" id="entry-preview-video-wrap" hidden>
+              <iframe id="entry-preview-iframe" class="entry-preview__iframe" title="콘텐츠 미리보기" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
+              <div class="entry-preview__resize-handle" id="preview-resize-handle" title="드래그하여 크기 조절"></div>
+            </div>
+            <div class="entry-preview__yt-info" id="entry-preview-yt-info" hidden>
+              <div class="yt-info__header">
+                <h3 class="yt-info__title" id="yt-info-title"></h3>
+                <div class="yt-info__meta" id="yt-info-meta"></div>
+              </div>
+              <details class="yt-info__section" open>
+                <summary class="yt-info__section-title">설명</summary>
+                <div class="yt-info__description" id="yt-info-description"></div>
+              </details>
+              <details class="yt-info__section">
+                <summary class="yt-info__section-title">댓글</summary>
+                <div class="yt-info__comments" id="yt-info-comments">
+                  <p class="yt-info__placeholder">댓글을 불러오는 중...</p>
+                </div>
+              </details>
+            </div>
+            <div class="entry-preview__article-wrap" id="entry-preview-article-wrap" hidden>
+              <iframe id="entry-preview-article-iframe" class="entry-preview__iframe" title="기사 미리보기" hidden></iframe>
+            </div>
             <article id="entry-preview-reader" class="entry-preview__reader" hidden aria-label="번역 읽기"></article>
             <div id="entry-preview-empty" class="entry-preview__empty" hidden aria-hidden="true"></div>
           </div>

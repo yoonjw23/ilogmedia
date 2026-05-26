@@ -669,7 +669,7 @@ async function fetchMetadataFromServer(url) {
 }
 
 /** @param {string} url @returns {Promise<string>} HTML 또는 Jina 마크다운 */
-async function fetchPageHtml(url) {
+export async function fetchPageHtml(url) {
   const proxies = [
     (u) => `https://r.jina.ai/${u}`,
     (u) => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,

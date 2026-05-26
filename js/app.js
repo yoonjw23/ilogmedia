@@ -26,6 +26,7 @@ import {
   isPaywalledPreviewHost,
   fetchArticleReaderText,
   extractPublishedDateFromUrl,
+  fetchPageHtml,
 } from "./metadata.js";
 import {
   showTranslatePopover,
@@ -437,6 +438,10 @@ function clearContentPreview() {
   const loginBtn = $("#btn-preview-login");
   const readerBtn = $("#btn-preview-reader");
   const paywallNote = $("#entry-preview-paywall-note");
+  const videoWrap = $("#entry-preview-video-wrap");
+  const ytInfo = $("#entry-preview-yt-info");
+  const articleWrap = $("#entry-preview-article-wrap");
+  const articleIframe = $("#entry-preview-article-iframe");
   previewReaderMode = false;
   previewReaderUrl = "";
   previewReaderLoading = false;
@@ -448,6 +453,10 @@ function clearContentPreview() {
   if (loginBtn) loginBtn.hidden = true;
   if (readerBtn) { readerBtn.hidden = true; readerBtn.textContent = "번역 읽기"; readerBtn.classList.remove("btn--active"); }
   if (paywallNote) paywallNote.hidden = true;
+  if (videoWrap) videoWrap.hidden = true;
+  if (ytInfo) ytInfo.hidden = true;
+  if (articleWrap) articleWrap.hidden = true;
+  if (articleIframe) { articleIframe.removeAttribute("src"); articleIframe.hidden = true; }
 }
 
 async function loadPreviewReader(url) {
@@ -535,6 +544,10 @@ function updateContentPreview() {
   const loginBtn = $("#btn-preview-login");
   const readerBtn = $("#btn-preview-reader");
   const paywallNote = $("#entry-preview-paywall-note");
+  const videoWrap = $("#entry-preview-video-wrap");
+  const ytInfo = $("#entry-preview-yt-info");
+  const articleWrap = $("#entry-preview-article-wrap");
+  const articleIframe = $("#entry-preview-article-iframe");
   if (!iframe || !empty) return;
 
   if (!url.startsWith("http")) { clearContentPreview(); return; }
@@ -549,16 +562,33 @@ function updateContentPreview() {
 
   const paywalled = isPaywalledPreviewHost(url);
   const embedUrl = getContentPreviewEmbedUrl(url);
-  if (embedUrl) {
+
+  if (isYoutube && embedUrl) {
     if (iframe.getAttribute("src") !== embedUrl) iframe.src = embedUrl;
-    if (paywalled) iframe.setAttribute("sandbox", PAYWALL_PREVIEW_SANDBOX);
-    else iframe.removeAttribute("sandbox");
+    iframe.removeAttribute("sandbox");
     iframe.hidden = false;
+    if (videoWrap) videoWrap.hidden = false;
+    if (ytInfo) ytInfo.hidden = false;
+    if (articleWrap) articleWrap.hidden = true;
+    if (reader) reader.hidden = true;
+    empty.hidden = true;
+    loadYoutubeInfo(url);
+  } else if (embedUrl) {
+    if (articleIframe) {
+      if (articleIframe.getAttribute("src") !== embedUrl) articleIframe.src = embedUrl;
+      if (paywalled) articleIframe.setAttribute("sandbox", PAYWALL_PREVIEW_SANDBOX);
+      else articleIframe.removeAttribute("sandbox");
+      articleIframe.hidden = false;
+    }
+    if (articleWrap) articleWrap.hidden = false;
+    if (videoWrap) videoWrap.hidden = true;
+    if (ytInfo) ytInfo.hidden = true;
     if (reader) reader.hidden = true;
     empty.hidden = true;
   } else {
-    iframe.removeAttribute("src");
-    iframe.hidden = true;
+    if (videoWrap) videoWrap.hidden = true;
+    if (ytInfo) ytInfo.hidden = true;
+    if (articleWrap) articleWrap.hidden = true;
     if (reader) reader.hidden = true;
     empty.hidden = true;
   }
@@ -566,6 +596,120 @@ function updateContentPreview() {
   if (openLink) { openLink.href = url; openLink.hidden = false; }
   if (loginBtn) loginBtn.hidden = !paywalled;
   if (paywallNote) paywallNote.hidden = !paywalled;
+}
+
+let _ytInfoLoadedUrl = "";
+
+async function loadYoutubeInfo(url) {
+  if (_ytInfoLoadedUrl === url) return;
+  _ytInfoLoadedUrl = url;
+
+  const titleEl = $("#yt-info-title");
+  const metaEl = $("#yt-info-meta");
+  const descEl = $("#yt-info-description");
+  const commentsEl = $("#yt-info-comments");
+  if (!titleEl) return;
+
+  titleEl.textContent = "불러오는 중…";
+  metaEl.textContent = "";
+  descEl.textContent = "";
+  if (commentsEl) commentsEl.innerHTML = `<p class="yt-info__placeholder">댓글을 불러오는 중...</p>`;
+
+  try {
+    const page = await fetchPageHtml(url);
+    if (_ytInfoLoadedUrl !== url) return;
+
+    const ytTitle = extractYtInfoField(page, "title");
+    const channel = extractYtInfoField(page, "author");
+    const viewCount = extractYtInfoField(page, "viewCount");
+    const publishDate = extractYtInfoField(page, "publishDate") ||
+      extractYtInfoField(page, "uploadDate");
+    const description = extractYtInfoField(page, "shortDescription") ||
+      extractYtInfoField(page, "description");
+
+    titleEl.textContent = ytTitle || $("#entry-title").value || "제목 없음";
+    const metaParts = [];
+    if (channel) metaParts.push(channel);
+    if (publishDate) metaParts.push(publishDate.slice(0, 10));
+    if (viewCount) metaParts.push(`조회수 ${Number(viewCount).toLocaleString()}회`);
+    metaEl.textContent = metaParts.join(" · ");
+    descEl.textContent = description || "(설명 없음)";
+
+    loadYoutubeComments(page, url, commentsEl);
+  } catch {
+    if (_ytInfoLoadedUrl === url) {
+      titleEl.textContent = $("#entry-title").value || "정보를 가져올 수 없습니다";
+      descEl.textContent = "";
+    }
+  }
+}
+
+function extractYtInfoField(page, field) {
+  const patterns = [
+    new RegExp(`"${field}"\\s*:\\s*"([^"]*(?:\\\\.[^"]*)*)"`, "i"),
+    new RegExp(`"${field}"\\s*:\\s*\\{[^}]*"simpleText"\\s*:\\s*"([^"]*)"`, "i"),
+  ];
+  for (const re of patterns) {
+    const m = page.match(re);
+    if (m?.[1]) {
+      return m[1]
+        .replace(/\\n/g, "\n")
+        .replace(/\\r/g, "")
+        .replace(/\\"/g, '"')
+        .replace(/\\\\/g, "\\")
+        .replace(/\\u0026/g, "&");
+    }
+  }
+  return undefined;
+}
+
+function loadYoutubeComments(page, url, container) {
+  if (!container) return;
+  const commentsHtml = [];
+  const commentPattern = /"contentText"\s*:\s*\{"runs"\s*:\s*\[([\s\S]*?)\]\}/g;
+  const authorPattern = /"authorText"\s*:\s*\{"simpleText"\s*:\s*"([^"]*)"\}/g;
+
+  const authors = [];
+  let am;
+  while ((am = authorPattern.exec(page)) !== null && authors.length < 20) {
+    authors.push(am[1]);
+  }
+
+  if (authors.length === 0) {
+    container.innerHTML = `<p class="yt-info__placeholder">댓글을 볼 수 없습니다</p>
+      <a class="yt-info__link" href="${url}" target="_blank" rel="noopener noreferrer">YouTube에서 댓글 보기 →</a>`;
+    return;
+  }
+
+  let ci = 0;
+  let cm;
+  while ((cm = commentPattern.exec(page)) !== null && ci < 20) {
+    try {
+      const runs = JSON.parse(`[${cm[1]}]`);
+      const text = runs.map((r) => r.text || "").join("");
+      if (!text.trim()) continue;
+      const author = authors[ci] || "익명";
+      commentsHtml.push(
+        `<div class="yt-info__comment">
+          <div class="yt-info__comment-author">${escapeHtml(author)}</div>
+          <div class="yt-info__comment-text">${escapeHtml(text)}</div>
+        </div>`
+      );
+      ci++;
+    } catch { ci++; }
+  }
+
+  if (commentsHtml.length > 0) {
+    container.innerHTML = commentsHtml.join("") +
+      `<a class="yt-info__link" href="${url}" target="_blank" rel="noopener noreferrer">YouTube에서 더 보기 →</a>`;
+  } else {
+    container.innerHTML = `<p class="yt-info__placeholder">댓글을 볼 수 없습니다</p>
+      <a class="yt-info__link" href="${url}" target="_blank" rel="noopener noreferrer">YouTube에서 댓글 보기 →</a>`;
+  }
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 function openDialog(id = null) {
@@ -974,6 +1118,46 @@ function setupDialogEvents() {
   $("#entry-url").addEventListener("input", () => { updateContentPreview(); scheduleAutoFetchMeta(); });
   $("#entry-url").addEventListener("paste", () => setTimeout(() => { updateContentPreview(); scheduleAutoFetchMeta(); }, 50));
   form.addEventListener("submit", handleFormSubmit);
+  initPreviewResize();
+}
+
+function initPreviewResize() {
+  const handle = $("#preview-resize-handle");
+  const videoWrap = $("#entry-preview-video-wrap");
+  if (!handle || !videoWrap) return;
+
+  let startY = 0;
+  let startH = 0;
+  let dragging = false;
+
+  function onPointerDown(e) {
+    e.preventDefault();
+    dragging = true;
+    startY = e.clientY;
+    startH = videoWrap.offsetHeight;
+    handle.classList.add("dragging");
+    handle.setPointerCapture(e.pointerId);
+  }
+
+  function onPointerMove(e) {
+    if (!dragging) return;
+    const dy = e.clientY - startY;
+    const parent = videoWrap.parentElement;
+    const maxH = parent ? parent.offsetHeight * 0.8 : 600;
+    const newH = Math.max(160, Math.min(maxH, startH + dy));
+    videoWrap.style.height = newH + "px";
+  }
+
+  function onPointerUp() {
+    if (!dragging) return;
+    dragging = false;
+    handle.classList.remove("dragging");
+  }
+
+  handle.addEventListener("pointerdown", onPointerDown);
+  handle.addEventListener("pointermove", onPointerMove);
+  handle.addEventListener("pointerup", onPointerUp);
+  handle.addEventListener("pointercancel", onPointerUp);
 }
 
 function setupAppShell() {
