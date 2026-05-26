@@ -1,0 +1,32 @@
+{
+  "name": "아이로그 미디어",
+  "short_name": "아이로그",
+  "description": "유튜브·기사·콘텐츠를 기록하고 키워드로 아카이브하는 아이로그 미디어",
+  "start_url": "/ilogmedia/",
+  "scope": "/ilogmedia/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0f1117",
+  "theme_color": "#5b8def",
+  "lang": "ko",
+  "icons": [
+    {
+      "src": "/ilogmedia/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/ilogmedia/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/ilogmedia/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

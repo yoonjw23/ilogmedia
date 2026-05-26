@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="description" content="유튜브·기사·콘텐츠를 기록하고 키워드로 아카이브하는 아이로그 미디어" />
+    <meta name="theme-color" content="#5b8def" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="아이로그" />
+    <title>아이로그 미디어</title>
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png" />
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles/main.css" />
+    <style>
+      .login-screen {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 1.5rem;
+        padding: 2rem;
+        text-align: center;
+      }
+      .login-screen__logo { font-size: 3rem; }
+      .login-screen__title { margin: 0; font-size: 1.5rem; font-weight: 700; }
+      .login-screen__desc {
+        margin: 0;
+        color: var(--text-muted);
+        font-size: 0.9375rem;
+        max-width: 22rem;
+        line-height: 1.6;
+      }
+      .btn--google {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.75rem 1.5rem;
+        font-size: 1rem;
+        font-weight: 600;
+        border-radius: var(--radius-sm);
+        border: 1px solid var(--border);
+        background: #fff;
+        color: #333;
+        cursor: pointer;
+        transition: box-shadow 0.15s;
+      }
+      .btn--google:hover {
+        box-shadow: 0 2px 12px rgba(91, 141, 239, 0.3);
+      }
+      .btn--google svg { width: 20px; height: 20px; }
+      .header__user {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        font-size: 0.75rem;
+        color: var(--text-muted);
+      }
+      #feed-empty:not(.is-visible) {
+        display: none !important;
+      }
+      #feed-empty.is-visible {
+        display: flex !important;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- 로그인 화면 -->
+    <section id="login-section" class="login-screen">
+      <span class="login-screen__logo" aria-hidden="true">📚</span>
+      <h1 class="login-screen__title">아이로그 미디어</h1>
+      <p class="login-screen__desc">유튜브·기사·콘텐츠를 기록하고<br>키워드로 아카이브하세요.</p>
+      <button type="button" class="btn--google" id="btn-google-login">
+        <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+        Google로 로그인
+      </button>
+    </section>
+
+    <!-- 메인 앱 -->
+    <div id="app" hidden>
+      <header class="header">
+        <div class="header__line">
+          <span class="header__logo" aria-hidden="true">📚</span>
+          <h1 class="header__title">아이로그 미디어</h1>
+          <div class="header__tools" role="toolbar" aria-label="도구">
+            <span id="storage-badge" class="storage-badge">로딩 중…</span>
+            <span class="header__user">
+              <span id="user-badge"></span>
+            </span>
+            <label class="header__chrome-opt">
+              <input type="checkbox" id="prefer-chrome" />
+              Chrome
+            </label>
+            <button type="button" class="btn btn--ghost btn--sm" id="btn-sync">새로고침</button>
+            <button type="button" class="btn btn--ghost btn--sm" id="btn-import">가져오기</button>
+            <button type="button" class="btn btn--ghost btn--sm" id="btn-export">보내기</button>
+            <button type="button" class="btn btn--ghost btn--sm" id="btn-logout" style="color: var(--danger);">로그아웃</button>
+          </div>
+          <button type="button" class="btn btn--primary btn--sm" id="btn-add">+ 추가</button>
+          <input type="file" id="import-file" accept=".json,application/json" hidden />
+        </div>
+      </header>
+
+      <nav class="tabs" role="tablist" aria-label="보기 모드">
+        <button type="button" class="tabs__item tabs__item--active" role="tab" aria-selected="true" data-view="feed">노트 목록</button>
+        <button type="button" class="tabs__item" role="tab" aria-selected="false" data-view="archive">주제 아카이브</button>
+      </nav>
+
+      <main>
+        <section id="view-feed" class="view view--active" role="tabpanel">
+          <div class="toolbar">
+            <div class="filter" role="group" aria-label="시청 상태 필터">
+              <button type="button" class="filter__btn filter__btn--active" data-filter="all">전체</button>
+              <button type="button" class="filter__btn" data-filter="to_watch">볼 예정</button>
+              <button type="button" class="filter__btn" data-filter="watched">시청 완료</button>
+            </div>
+            <div class="search">
+              <input type="search" id="search-input" class="search__input" placeholder="제목·키워드·메모 검색…" autocomplete="off" />
+            </div>
+          </div>
+          <div id="feed-list" class="feed-list" aria-live="polite"></div>
+          <div id="feed-empty" class="empty-state" aria-hidden="true">
+            <p id="feed-empty-msg">아직 기록된 콘텐츠가 없습니다.</p>
+            <p class="empty-state__hint"><strong>+ 추가</strong> 버튼을 눌러 콘텐츠를 기록해 보세요.</p>
+          </div>
+        </section>
+
+        <section id="view-archive" class="view" role="tabpanel" hidden>
+          <div id="archive-toolbar" class="archive-toolbar" hidden>
+            <div class="archive-toolbar__row">
+              <button type="button" class="btn btn--ghost btn--sm" id="archive-clear-focus">← 전체 아카이브</button>
+              <h2 id="archive-focus-title" class="archive-focus-title"></h2>
+              <span id="archive-focus-count" class="archive-focus-count"></span>
+            </div>
+            <label class="archive-sort">
+              <span class="archive-sort__label">정렬</span>
+              <select id="archive-sort" class="archive-sort__select">
+                <option value="recorded">기록 최신순</option>
+                <option value="published">게시일순</option>
+                <option value="title">제목순</option>
+                <option value="type">미디어 유형</option>
+              </select>
+            </label>
+          </div>
+          <p id="archive-intro" class="archive-intro">카테고리와 키워드로 묶인 학습 아카이브입니다.</p>
+          <div id="archive-content"></div>
+          <p id="archive-empty" class="empty-state" aria-hidden="true">아카이브를 만들려면 콘텐츠에 카테고리나 키워드를 추가하세요.</p>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="entry-dialog" class="dialog dialog--split">
+      <div class="entry-compose">
+        <section class="entry-preview" id="entry-preview-panel" aria-label="콘텐츠 미리보기">
+          <div class="entry-preview__toolbar">
+            <span class="entry-preview__label">콘텐츠</span>
+            <div class="entry-preview__actions">
+              <button type="button" class="btn btn--ghost btn--sm" id="btn-preview-reader" hidden>번역 읽기</button>
+              <button type="button" class="btn btn--ghost btn--sm" id="btn-preview-login" hidden>로그인 창 열기</button>
+              <a class="btn btn--ghost btn--sm entry-preview__open" id="entry-preview-open" href="#" target="_blank" rel="noopener noreferrer" hidden>새 탭에서 열기</a>
+            </div>
+          </div>
+          <p id="entry-preview-paywall-note" class="entry-preview__paywall-note" hidden>
+            구독 사이트는 미리보기 안에서 로그인하면 화면이 검게 될 수 있습니다.
+            <strong>로그인 창 열기</strong>로 로그인하세요.
+          </p>
+          <div class="entry-preview__body">
+            <iframe id="entry-preview-iframe" class="entry-preview__iframe" title="콘텐츠 미리보기" hidden allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
+            <article id="entry-preview-reader" class="entry-preview__reader" hidden aria-label="번역 읽기"></article>
+            <div id="entry-preview-empty" class="entry-preview__empty" hidden aria-hidden="true"></div>
+          </div>
+        </section>
+
+        <form id="entry-form" class="dialog__form dialog__form--side" method="dialog">
+          <header class="dialog__header">
+            <h2 id="dialog-title" class="dialog__title">콘텐츠 추가</h2>
+            <button type="button" class="dialog__close" id="btn-close-dialog" aria-label="닫기">×</button>
+          </header>
+          <div class="dialog__body">
+            <div class="field">
+              <label class="field__label" for="entry-url">링크</label>
+              <div class="field__row">
+                <input type="url" id="entry-url" class="field__input" placeholder="https://youtube.com/... 또는 기사 URL" required />
+                <button type="button" class="btn btn--secondary btn--sm" id="btn-fetch-meta">정보 가져오기</button>
+              </div>
+            </div>
+            <div class="field-row">
+              <div class="field">
+                <label class="field__label" for="entry-type">미디어 유형</label>
+                <select id="entry-type" class="field__input">
+                  <option value="youtube">유튜브</option>
+                  <option value="article">신문·기사</option>
+                  <option value="podcast">팟캐스트</option>
+                  <option value="book">도서·문서</option>
+                  <option value="other">기타</option>
+                </select>
+              </div>
+              <div class="field">
+                <label class="field__label" for="entry-status">시청 여부</label>
+                <select id="entry-status" class="field__input">
+                  <option value="to_watch">볼 예정 (to watch)</option>
+                  <option value="watched">시청 완료 (watched)</option>
+                </select>
+              </div>
+            </div>
+            <div class="field">
+              <label class="field__label" for="entry-title">제목</label>
+              <input type="text" id="entry-title" class="field__input" required />
+            </div>
+            <div class="field-row">
+              <div class="field">
+                <label class="field__label" for="entry-published">업로드·게시일</label>
+                <input type="date" id="entry-published" class="field__input" />
+              </div>
+              <div class="field field--watched" id="field-watched-at" hidden>
+                <label class="field__label" for="entry-watched-at">시청한 날짜</label>
+                <input type="date" id="entry-watched-at" class="field__input" />
+              </div>
+            </div>
+            <div class="field">
+              <label class="field__label" for="entry-summary">주요 내용 메모</label>
+              <textarea id="entry-summary" class="field__input field__textarea" rows="4" placeholder="영상/기사의 핵심 내용, 인사이트를 기록하세요"></textarea>
+            </div>
+            <div class="field">
+              <label class="field__label" for="entry-keywords">주요 키워드</label>
+              <input type="text" id="entry-keywords" class="field__input" placeholder="쉼표로 구분 (예: 버핏, 가치투자, 배당)" />
+            </div>
+            <div class="field">
+              <label class="field__label">카테고리</label>
+              <div class="category-chips" id="category-chips"></div>
+              <input type="text" id="entry-category-custom" class="field__input field__input--sm" placeholder="직접 입력 후 Enter" />
+            </div>
+          </div>
+          <footer class="dialog__footer">
+            <button type="button" class="btn btn--ghost" id="btn-delete-entry" hidden>삭제</button>
+            <div class="dialog__footer-right">
+              <button type="button" class="btn btn--ghost" id="btn-cancel">취소</button>
+              <button type="submit" class="btn btn--primary">저장</button>
+            </div>
+          </footer>
+        </form>
+      </div>
+    </dialog>
+
+    <script type="module" src="js/app.js"></script>
+  </body>
+</html>
