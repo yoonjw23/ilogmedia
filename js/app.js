@@ -995,29 +995,35 @@ async function bootstrap() {
     document.documentElement.classList.toggle("is-mobile", isMobileLayout());
   });
 
-  const { initializeApp } = await import(
-    "https://www.gstatic.com/firebasejs/11.8.1/firebase-app.js"
-  );
-  const app = initializeApp(firebaseConfig);
+  try {
+    const { initializeApp } = await import(
+      "https://www.gstatic.com/firebasejs/11.8.1/firebase-app.js"
+    );
+    const app = initializeApp(firebaseConfig);
 
-  const user = await initAuth(app);
-  await initFirestore(app);
+    const user = await initAuth(app);
+    await initFirestore(app);
 
-  updateAuthUI(user);
+    updateAuthUI(user);
 
-  $("#btn-google-login")?.addEventListener("click", async () => {
-    try {
-      const u = await signInWithGoogle();
-      updateAuthUI(u);
-      if (!appStarted) await startApp();
-    } catch (err) {
-      if (err.code !== "auth/popup-closed-by-user") {
-        alert("로그인에 실패했습니다. 다시 시도해 주세요.");
+    $("#btn-google-login")?.addEventListener("click", async () => {
+      try {
+        const u = await signInWithGoogle();
+        updateAuthUI(u);
+        if (!appStarted) await startApp();
+      } catch (err) {
+        if (err.code !== "auth/popup-closed-by-user") {
+          alert("로그인에 실패했습니다. 다시 시도해 주세요.");
+        }
       }
-    }
-  });
+    });
 
-  if (user) await startApp();
+    if (user) await startApp();
+  } catch (err) {
+    console.error("Bootstrap error:", err);
+    const loading = $("#loading-screen");
+    if (loading) loading.textContent = "앱 초기화에 실패했습니다. 페이지를 새로고침해 주세요.";
+  }
 }
 
 async function startApp() {
@@ -1028,11 +1034,16 @@ async function startApp() {
   const syncBtn = $("#btn-sync");
   if (syncBtn) {
     syncBtn.addEventListener("click", async () => {
-      entries = await loadEntries();
-      updateStorageBadge();
-      renderFeed();
-      renderArchive();
-      alert(`새로고침 완료: ${entries.length}개`);
+      try {
+        entries = await loadEntries();
+        updateStorageBadge();
+        renderFeed();
+        renderArchive();
+        alert(`새로고침 완료: ${entries.length}개`);
+      } catch (err) {
+        console.error("Sync error:", err);
+        alert("데이터를 불러오지 못했습니다.");
+      }
     });
   }
 
@@ -1040,11 +1051,17 @@ async function startApp() {
     await signOut();
     updateAuthUI(null);
     entries = [];
+    appStarted = false;
     renderFeed();
     renderArchive();
   });
 
-  entries = await loadEntries();
+  try {
+    entries = await loadEntries();
+  } catch (err) {
+    console.error("Load error:", err);
+    entries = [];
+  }
   updateStorageBadge();
   renderFeed();
   renderArchive();
