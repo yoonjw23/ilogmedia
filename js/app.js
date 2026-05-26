@@ -708,9 +708,6 @@ function loadYoutubeComments(page, url, container) {
   }
 }
 
-function escapeHtml(s) {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
 
 function openDialog(id = null) {
   editingId = id;
