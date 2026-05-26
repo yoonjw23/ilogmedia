@@ -617,8 +617,10 @@ function toggleWatchedField() {
 
 /* ── Auth UI ── */
 function updateAuthUI(user) {
+  const loading = $("#loading-screen");
   const loginSection = $("#login-section");
   const appSection = $("#app");
+  if (loading) loading.hidden = true;
   if (user) {
     if (loginSection) loginSection.hidden = true;
     if (appSection) appSection.hidden = false;
@@ -985,6 +987,8 @@ function setupAppShell() {
 }
 
 /* ── Bootstrap ── */
+let appStarted = false;
+
 async function bootstrap() {
   document.documentElement.classList.toggle("is-mobile", isMobileLayout());
   window.matchMedia("(max-width: 768px)").addEventListener("change", () => {
@@ -1001,25 +1005,24 @@ async function bootstrap() {
 
   updateAuthUI(user);
 
-  if (!user) {
-    $("#btn-google-login")?.addEventListener("click", async () => {
-      try {
-        const u = await signInWithGoogle();
-        updateAuthUI(u);
-        await startApp();
-      } catch (err) {
-        if (err.code !== "auth/popup-closed-by-user") {
-          alert("로그인에 실패했습니다. 다시 시도해 주세요.");
-        }
+  $("#btn-google-login")?.addEventListener("click", async () => {
+    try {
+      const u = await signInWithGoogle();
+      updateAuthUI(u);
+      if (!appStarted) await startApp();
+    } catch (err) {
+      if (err.code !== "auth/popup-closed-by-user") {
+        alert("로그인에 실패했습니다. 다시 시도해 주세요.");
       }
-    });
-    return;
-  }
+    }
+  });
 
-  await startApp();
+  if (user) await startApp();
 }
 
 async function startApp() {
+  if (appStarted) return;
+  appStarted = true;
   setupAppShell();
 
   const syncBtn = $("#btn-sync");

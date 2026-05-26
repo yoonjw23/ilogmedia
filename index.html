@@ -70,11 +70,23 @@
       #feed-empty.is-visible {
         display: flex !important;
       }
+      #login-section[hidden] { display: none !important; }
+      .app-loading {
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--text-muted);
+        font-size: 0.9375rem;
+      }
     </style>
   </head>
   <body>
+    <!-- 로딩 -->
+    <div id="loading-screen" class="app-loading">불러오는 중…</div>
+
     <!-- 로그인 화면 -->
-    <section id="login-section" class="login-screen">
+    <section id="login-section" class="login-screen" hidden>
       <span class="login-screen__logo" aria-hidden="true">📚</span>
       <h1 class="login-screen__title">아이로그 미디어</h1>
       <p class="login-screen__desc">유튜브·기사·콘텐츠를 기록하고<br>키워드로 아카이브하세요.</p>
