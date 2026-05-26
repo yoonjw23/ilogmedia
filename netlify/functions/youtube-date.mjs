@@ -4,7 +4,12 @@
  */
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
-const CLIENT = { clientName: "WEB", clientVersion: "2.20250520.01.00" };
+const CLIENT = {
+  clientName: "WEB",
+  clientVersion: "2.20250520.01.00",
+  hl: "ko",
+  gl: "KR",
+};
 
 export default async (req) => {
   const url = new URL(req.url);
@@ -113,14 +118,24 @@ function extractDescriptionFromNext(data) {
 
 function extractCommentsContinuation(data) {
   try {
-    const results = data?.contents?.twoColumnWatchNextResults?.results?.results?.contents ?? [];
-    for (const c of results) {
+    const contents = data?.contents?.twoColumnWatchNextResults?.results?.results?.contents ?? [];
+    for (const c of contents) {
       const section = c?.itemSectionRenderer;
-      if (!section) continue;
-      for (const item of section.contents ?? []) {
-        const cont = item?.continuationItemRenderer?.continuationEndpoint?.continuationCommand;
-        if (cont?.token) return cont.token;
+      if (section) {
+        for (const item of section.contents ?? []) {
+          const token = item?.continuationItemRenderer?.continuationEndpoint?.continuationCommand?.token;
+          if (token) return token;
+        }
       }
+    }
+
+    const json = JSON.stringify(data);
+    const tokens = [];
+    const re = /"token"\s*:\s*"(Eg[A-Za-z0-9_-]{20,})"/g;
+    let m;
+    while ((m = re.exec(json)) !== null) tokens.push(m[1]);
+    for (const t of tokens) {
+      if (t.startsWith("Eg")) return t;
     }
   } catch { /* ignore */ }
   return null;

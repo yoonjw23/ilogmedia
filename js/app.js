@@ -1106,6 +1106,44 @@ function initPreviewResize() {
   handle.addEventListener("pointermove", onPointerMove);
   handle.addEventListener("pointerup", onPointerUp);
   handle.addEventListener("pointercancel", onPointerUp);
+
+  const hHandle = $("#compose-resize-h");
+  const preview = $("#entry-preview-panel");
+  const formSide = $("#entry-form");
+  if (!hHandle || !preview || !formSide) return;
+
+  let hStartX = 0;
+  let hStartW = 0;
+  let hDragging = false;
+
+  function onHPointerDown(e) {
+    e.preventDefault();
+    hDragging = true;
+    hStartX = e.clientX;
+    hStartW = formSide.offsetWidth;
+    hHandle.classList.add("dragging");
+    hHandle.setPointerCapture(e.pointerId);
+  }
+
+  function onHPointerMove(e) {
+    if (!hDragging) return;
+    const dx = e.clientX - hStartX;
+    const newW = Math.max(280, Math.min(800, hStartW - dx));
+    formSide.style.flex = "none";
+    formSide.style.width = newW + "px";
+    formSide.style.maxWidth = newW + "px";
+  }
+
+  function onHPointerUp() {
+    if (!hDragging) return;
+    hDragging = false;
+    hHandle.classList.remove("dragging");
+  }
+
+  hHandle.addEventListener("pointerdown", onHPointerDown);
+  hHandle.addEventListener("pointermove", onHPointerMove);
+  hHandle.addEventListener("pointerup", onHPointerUp);
+  hHandle.addEventListener("pointercancel", onHPointerUp);
 }
 
 function setupAppShell() {
