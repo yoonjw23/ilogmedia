@@ -45,8 +45,6 @@ export default async (req) => {
       micro.description?.simpleText ||
       null;
 
-    const comments = extractComments(nextData);
-
     const result = {
       ok: true,
       publishedAt: isoDate,
@@ -57,20 +55,16 @@ export default async (req) => {
       thumbnail: micro.thumbnail?.thumbnails?.slice(-1)?.[0]?.url || null,
     };
 
-    if (comments.length > 0) {
-      result.comments = comments;
-    } else {
-      const token = extractCommentsContinuation(nextData);
-      if (token) {
-        try {
-          const commentsRes = await innertube("next", { continuation: token });
-          if (commentsRes.ok) {
-            const commentsData = await commentsRes.json();
-            const c = extractCommentsFromContinuation(commentsData);
-            if (c.length > 0) result.comments = c;
-          }
-        } catch { /* ignore */ }
-      }
+    const commentToken = findCommentsContinuation(nextData);
+    if (commentToken) {
+      try {
+        const commentsRes = await innertube("next", { continuation: commentToken });
+        if (commentsRes.ok) {
+          const commentsData = await commentsRes.json();
+          const c = extractCommentsFromResponse(commentsData);
+          if (c.length > 0) result.comments = c;
+        }
+      } catch { /* ignore */ }
     }
 
     return new Response(JSON.stringify(result), { headers });
@@ -116,12 +110,17 @@ function extractDescriptionFromNext(data) {
   return null;
 }
 
-function extractCommentsContinuation(data) {
+function findCommentsContinuation(data) {
   try {
     const contents = data?.contents?.twoColumnWatchNextResults?.results?.results?.contents ?? [];
     for (const c of contents) {
       const section = c?.itemSectionRenderer;
-      if (section) {
+      if (!section) continue;
+
+      const sectionId = section?.sectionIdentifier;
+      const targetId = section?.targetId;
+      if (sectionId === "comment-item-section" || targetId === "comments-section" ||
+          targetId === "comment-item-section") {
         for (const item of section.contents ?? []) {
           const token = item?.continuationItemRenderer?.continuationEndpoint?.continuationCommand?.token;
           if (token) return token;
@@ -129,36 +128,55 @@ function extractCommentsContinuation(data) {
       }
     }
 
+    for (const c of contents) {
+      const section = c?.itemSectionRenderer;
+      if (!section) continue;
+      for (const item of section.contents ?? []) {
+        const token = item?.continuationItemRenderer?.continuationEndpoint?.continuationCommand?.token;
+        if (token) return token;
+      }
+    }
+
     const json = JSON.stringify(data);
-    const tokens = [];
-    const re = /"token"\s*:\s*"(Eg[A-Za-z0-9_-]{20,})"/g;
+    const re = /"token"\s*:\s*"(Eg[A-Za-z0-9_-]{30,})"/g;
     let m;
-    while ((m = re.exec(json)) !== null) tokens.push(m[1]);
-    for (const t of tokens) {
-      if (t.startsWith("Eg")) return t;
+    while ((m = re.exec(json)) !== null) {
+      if (m[1].includes("comment") || m[1].startsWith("Eg0S")) return m[1];
+    }
+    re.lastIndex = 0;
+    while ((m = re.exec(json)) !== null) {
+      return m[1];
     }
   } catch { /* ignore */ }
   return null;
 }
 
-function extractComments(data) {
-  return extractCommentsFromItems(
-    data?.onResponseReceivedEndpoints
-      ?.flatMap((e) =>
-        e?.reloadContinuationItemsCommand?.continuationItems ??
-        e?.appendContinuationItemsAction?.continuationItems ?? []
-      ) ?? []
-  );
-}
+function extractCommentsFromResponse(data) {
+  const items = [];
 
-function extractCommentsFromContinuation(data) {
-  return extractCommentsFromItems(
-    data?.onResponseReceivedEndpoints
-      ?.flatMap((e) =>
-        e?.reloadContinuationItemsCommand?.continuationItems ??
-        e?.appendContinuationItemsAction?.continuationItems ?? []
-      ) ?? []
-  );
+  const endpoints = data?.onResponseReceivedEndpoints ?? [];
+  for (const ep of endpoints) {
+    const ci =
+      ep?.reloadContinuationItemsCommand?.continuationItems ??
+      ep?.appendContinuationItemsAction?.continuationItems ?? [];
+    items.push(...ci);
+  }
+
+  const frameworkUpdates = data?.frameworkUpdates?.entityBatchUpdate?.mutations ?? [];
+  const fwComments = [];
+  for (const mutation of frameworkUpdates) {
+    const payload = mutation?.payload?.commentEntityPayload;
+    if (payload) {
+      const author = payload.author?.displayName || "";
+      const text = payload.properties?.content?.content || "";
+      const likes = payload.toolbar?.likeCountLiked || payload.toolbar?.likeCountNotliked || "";
+      const time = payload.properties?.publishedTime || "";
+      if (text.trim()) fwComments.push({ author, text, likes, time });
+    }
+  }
+  if (fwComments.length > 0) return fwComments.slice(0, 15);
+
+  return extractCommentsFromItems(items);
 }
 
 function extractCommentsFromItems(items) {
