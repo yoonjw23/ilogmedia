@@ -2,55 +2,45 @@
  * Netlify Function: YouTube 영상 정보 조회 (innertube API)
  * GET /.netlify/functions/youtube-date?v=VIDEO_ID
  */
+const UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+const CLIENT = { clientName: "WEB", clientVersion: "2.20250520.01.00" };
+
 export default async (req) => {
   const url = new URL(req.url);
   const videoId = url.searchParams.get("v");
-  const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
+  const headers = {
+    "Content-Type": "application/json",
+    "Access-Control-Allow-Origin": "*",
+    "Cache-Control": "public, max-age=3600",
+  };
 
   if (!videoId || !/^[\w-]{11}$/.test(videoId)) {
     return new Response(JSON.stringify({ error: "invalid video id" }), { status: 400, headers });
   }
 
-  const UA =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
-
-  const playerBody = JSON.stringify({
-    context: { client: { clientName: "WEB", clientVersion: "2.20240101.01.00" } },
-    videoId,
-  });
-
-  const nextBody = JSON.stringify({
-    context: { client: { clientName: "WEB", clientVersion: "2.20240101.01.00" } },
-    videoId,
-    params: "8AEB",
-  });
-
   try {
     const [playerRes, nextRes] = await Promise.all([
-      fetch("https://www.youtube.com/youtubei/v1/player", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "User-Agent": UA },
-        body: playerBody,
-      }),
-      fetch("https://www.youtube.com/youtubei/v1/next", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "User-Agent": UA },
-        body: nextBody,
-      }).catch(() => null),
+      innertube("player", { videoId }),
+      innertube("next", { videoId }),
     ]);
 
-    if (!playerRes.ok) {
-      return new Response(
-        JSON.stringify({ error: "innertube error", status: playerRes.status }),
-        { status: 502, headers }
-      );
-    }
+    const playerData = playerRes.ok ? await playerRes.json() : {};
+    const nextData = nextRes.ok ? await nextRes.json() : {};
 
-    const playerData = await playerRes.json();
-    const micro = playerData?.microformat?.playerMicroformatRenderer ?? {};
     const details = playerData?.videoDetails ?? {};
+    const micro = playerData?.microformat?.playerMicroformatRenderer ?? {};
+
     const uploadDate = micro.uploadDate || micro.publishDate || null;
     const isoDate = uploadDate ? uploadDate.replace(/T.*/, "").slice(0, 10) : null;
+
+    const description =
+      details.shortDescription ||
+      extractDescriptionFromNext(nextData) ||
+      micro.description?.simpleText ||
+      null;
+
+    const comments = extractComments(nextData);
 
     const result = {
       ok: true,
@@ -58,16 +48,24 @@ export default async (req) => {
       title: details.title || micro.title?.simpleText || null,
       channel: details.author || micro.ownerChannelName || null,
       viewCount: details.viewCount || null,
-      description: details.shortDescription || micro.description?.simpleText || null,
+      description,
       thumbnail: micro.thumbnail?.thumbnails?.slice(-1)?.[0]?.url || null,
     };
 
-    if (nextRes?.ok) {
-      try {
-        const nextData = await nextRes.json();
-        const comments = extractComments(nextData);
-        if (comments.length > 0) result.comments = comments;
-      } catch { /* ignore */ }
+    if (comments.length > 0) {
+      result.comments = comments;
+    } else {
+      const token = extractCommentsContinuation(nextData);
+      if (token) {
+        try {
+          const commentsRes = await innertube("next", { continuation: token });
+          if (commentsRes.ok) {
+            const commentsData = await commentsRes.json();
+            const c = extractCommentsFromContinuation(commentsData);
+            if (c.length > 0) result.comments = c;
+          }
+        } catch { /* ignore */ }
+      }
     }
 
     return new Response(JSON.stringify(result), { headers });
@@ -76,33 +74,96 @@ export default async (req) => {
   }
 };
 
-function extractComments(data) {
-  const comments = [];
+async function innertube(endpoint, extra) {
+  return fetch(`https://www.youtube.com/youtubei/v1/${endpoint}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "User-Agent": UA },
+    body: JSON.stringify({ context: { client: CLIENT }, ...extra }),
+  });
+}
+
+function extractDescriptionFromNext(data) {
   try {
-    const items =
-      data?.onResponseReceivedEndpoints
-        ?.flatMap((e) =>
-          e?.reloadContinuationItemsCommand?.continuationItems ??
-          e?.appendContinuationItemsAction?.continuationItems ?? []
-        ) ?? [];
-
-    for (const item of items) {
-      const thread = item?.commentThreadRenderer;
-      if (!thread) continue;
-      const c = thread.comment?.commentRenderer;
-      if (!c) continue;
-
-      const author = c.authorText?.simpleText || "";
-      const text = (c.contentText?.runs ?? []).map((r) => r.text || "").join("");
-      const likes = c.voteCount?.simpleText || "";
-      const time = c.publishedTimeText?.runs?.map((r) => r.text || "").join("") || "";
-
-      if (text.trim()) {
-        comments.push({ author, text, likes, time });
+    const panels = data?.engagementPanels ?? [];
+    for (const panel of panels) {
+      const content = panel?.engagementPanelSectionListRenderer?.content;
+      const items =
+        content?.structuredDescriptionContentRenderer?.items ?? [];
+      for (const item of items) {
+        const body = item?.expandableVideoDescriptionBodyRenderer;
+        if (body?.descriptionBodyText?.runs) {
+          return body.descriptionBodyText.runs.map((r) => r.text || "").join("");
+        }
       }
-      if (comments.length >= 15) break;
+    }
+
+    const results = data?.contents?.twoColumnWatchNextResults?.results?.results?.contents ?? [];
+    for (const c of results) {
+      const secondary = c?.videoSecondaryInfoRenderer;
+      if (secondary?.attributedDescription?.content) {
+        return secondary.attributedDescription.content;
+      }
+      if (secondary?.description?.runs) {
+        return secondary.description.runs.map((r) => r.text || "").join("");
+      }
     }
   } catch { /* ignore */ }
+  return null;
+}
+
+function extractCommentsContinuation(data) {
+  try {
+    const results = data?.contents?.twoColumnWatchNextResults?.results?.results?.contents ?? [];
+    for (const c of results) {
+      const section = c?.itemSectionRenderer;
+      if (!section) continue;
+      for (const item of section.contents ?? []) {
+        const cont = item?.continuationItemRenderer?.continuationEndpoint?.continuationCommand;
+        if (cont?.token) return cont.token;
+      }
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
+function extractComments(data) {
+  return extractCommentsFromItems(
+    data?.onResponseReceivedEndpoints
+      ?.flatMap((e) =>
+        e?.reloadContinuationItemsCommand?.continuationItems ??
+        e?.appendContinuationItemsAction?.continuationItems ?? []
+      ) ?? []
+  );
+}
+
+function extractCommentsFromContinuation(data) {
+  return extractCommentsFromItems(
+    data?.onResponseReceivedEndpoints
+      ?.flatMap((e) =>
+        e?.reloadContinuationItemsCommand?.continuationItems ??
+        e?.appendContinuationItemsAction?.continuationItems ?? []
+      ) ?? []
+  );
+}
+
+function extractCommentsFromItems(items) {
+  const comments = [];
+  for (const item of items) {
+    const thread = item?.commentThreadRenderer;
+    const c = thread?.comment?.commentRenderer ?? item?.commentRenderer;
+    if (!c) continue;
+
+    const author = c.authorText?.simpleText || "";
+    const text = (c.contentText?.runs ?? []).map((r) => r.text || "").join("");
+    const likes = c.voteCount?.simpleText || "";
+    const time = (c.publishedTimeText?.runs ?? []).map((r) => r.text || "").join("") ||
+      c.publishedTimeText?.simpleText || "";
+
+    if (text.trim()) {
+      comments.push({ author, text, likes, time });
+    }
+    if (comments.length >= 15) break;
+  }
   return comments;
 }
 
