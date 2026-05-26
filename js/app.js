@@ -26,7 +26,6 @@ import {
   isPaywalledPreviewHost,
   fetchArticleReaderText,
   extractPublishedDateFromUrl,
-  fetchPageHtml,
 } from "./metadata.js";
 import {
   showTranslatePopover,
@@ -615,96 +614,48 @@ async function loadYoutubeInfo(url) {
   descEl.textContent = "";
   if (commentsEl) commentsEl.innerHTML = `<p class="yt-info__placeholder">댓글을 불러오는 중...</p>`;
 
+  const id = url.match(/(?:v=|youtu\.be\/)([\w-]{11})/)?.[1];
+  if (!id) {
+    titleEl.textContent = $("#entry-title").value || "영상 ID를 찾을 수 없습니다";
+    return;
+  }
+
   try {
-    const page = await fetchPageHtml(url);
+    const res = await fetch(`/.netlify/functions/youtube-date?v=${id}`);
+    if (!res.ok) throw new Error("fetch failed");
+    const data = await res.json();
     if (_ytInfoLoadedUrl !== url) return;
 
-    const ytTitle = extractYtInfoField(page, "title");
-    const channel = extractYtInfoField(page, "author");
-    const viewCount = extractYtInfoField(page, "viewCount");
-    const publishDate = extractYtInfoField(page, "publishDate") ||
-      extractYtInfoField(page, "uploadDate");
-    const description = extractYtInfoField(page, "shortDescription") ||
-      extractYtInfoField(page, "description");
+    titleEl.textContent = data.title || $("#entry-title").value || "제목 없음";
 
-    titleEl.textContent = ytTitle || $("#entry-title").value || "제목 없음";
     const metaParts = [];
-    if (channel) metaParts.push(channel);
-    if (publishDate) metaParts.push(publishDate.slice(0, 10));
-    if (viewCount) metaParts.push(`조회수 ${Number(viewCount).toLocaleString()}회`);
+    if (data.channel) metaParts.push(data.channel);
+    if (data.publishedAt) metaParts.push(data.publishedAt);
+    if (data.viewCount) metaParts.push(`조회수 ${Number(data.viewCount).toLocaleString()}회`);
     metaEl.textContent = metaParts.join(" · ");
-    descEl.textContent = description || "(설명 없음)";
 
-    loadYoutubeComments(page, url, commentsEl);
+    descEl.textContent = data.description || "(설명 없음)";
+
+    if (data.comments?.length > 0) {
+      commentsEl.innerHTML = data.comments.map((c) =>
+        `<div class="yt-info__comment">
+          <div class="yt-info__comment-author">${escapeHtml(c.author)}</div>
+          <div class="yt-info__comment-text">${escapeHtml(c.text)}</div>
+          ${c.likes || c.time ? `<div class="yt-info__comment-meta">${[c.time, c.likes ? `👍 ${c.likes}` : ""].filter(Boolean).join(" · ")}</div>` : ""}
+        </div>`
+      ).join("") +
+        `<a class="yt-info__link" href="${url}" target="_blank" rel="noopener noreferrer">YouTube에서 더 보기 →</a>`;
+    } else {
+      commentsEl.innerHTML = `<p class="yt-info__placeholder">댓글을 볼 수 없습니다</p>
+        <a class="yt-info__link" href="${url}" target="_blank" rel="noopener noreferrer">YouTube에서 댓글 보기 →</a>`;
+    }
   } catch {
     if (_ytInfoLoadedUrl === url) {
       titleEl.textContent = $("#entry-title").value || "정보를 가져올 수 없습니다";
       descEl.textContent = "";
+      if (commentsEl) commentsEl.innerHTML =
+        `<a class="yt-info__link" href="${url}" target="_blank" rel="noopener noreferrer">YouTube에서 보기 →</a>`;
     }
-  }
-}
-
-function extractYtInfoField(page, field) {
-  const patterns = [
-    new RegExp(`"${field}"\\s*:\\s*"([^"]*(?:\\\\.[^"]*)*)"`, "i"),
-    new RegExp(`"${field}"\\s*:\\s*\\{[^}]*"simpleText"\\s*:\\s*"([^"]*)"`, "i"),
-  ];
-  for (const re of patterns) {
-    const m = page.match(re);
-    if (m?.[1]) {
-      return m[1]
-        .replace(/\\n/g, "\n")
-        .replace(/\\r/g, "")
-        .replace(/\\"/g, '"')
-        .replace(/\\\\/g, "\\")
-        .replace(/\\u0026/g, "&");
-    }
-  }
-  return undefined;
-}
-
-function loadYoutubeComments(page, url, container) {
-  if (!container) return;
-  const commentsHtml = [];
-  const commentPattern = /"contentText"\s*:\s*\{"runs"\s*:\s*\[([\s\S]*?)\]\}/g;
-  const authorPattern = /"authorText"\s*:\s*\{"simpleText"\s*:\s*"([^"]*)"\}/g;
-
-  const authors = [];
-  let am;
-  while ((am = authorPattern.exec(page)) !== null && authors.length < 20) {
-    authors.push(am[1]);
-  }
-
-  if (authors.length === 0) {
-    container.innerHTML = `<p class="yt-info__placeholder">댓글을 볼 수 없습니다</p>
-      <a class="yt-info__link" href="${url}" target="_blank" rel="noopener noreferrer">YouTube에서 댓글 보기 →</a>`;
-    return;
-  }
-
-  let ci = 0;
-  let cm;
-  while ((cm = commentPattern.exec(page)) !== null && ci < 20) {
-    try {
-      const runs = JSON.parse(`[${cm[1]}]`);
-      const text = runs.map((r) => r.text || "").join("");
-      if (!text.trim()) continue;
-      const author = authors[ci] || "익명";
-      commentsHtml.push(
-        `<div class="yt-info__comment">
-          <div class="yt-info__comment-author">${escapeHtml(author)}</div>
-          <div class="yt-info__comment-text">${escapeHtml(text)}</div>
-        </div>`
-      );
-      ci++;
-    } catch { ci++; }
-  }
-
-  if (commentsHtml.length > 0) {
-    container.innerHTML = commentsHtml.join("") +
-      `<a class="yt-info__link" href="${url}" target="_blank" rel="noopener noreferrer">YouTube에서 더 보기 →</a>`;
-  } else {
-    container.innerHTML = `<p class="yt-info__placeholder">댓글을 볼 수 없습니다</p>
-      <a class="yt-info__link" href="${url}" target="_blank" rel="noopener noreferrer">YouTube에서 댓글 보기 →</a>`;
   }
 }
 
