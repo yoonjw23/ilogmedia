@@ -25,6 +25,7 @@ import {
   getContentPreviewEmbedUrl,
   isPaywalledPreviewHost,
   isIframeBlockedPreviewHost,
+  isUsableArticleThumbnail,
   fetchArticleReaderText,
   extractPublishedDateFromUrl,
 } from "./metadata.js";
@@ -153,9 +154,22 @@ function youtubeThumbFromUrl(url) {
 }
 
 function getEntryThumbnailUrl(entry) {
-  if (entry.thumbnail) return entry.thumbnail;
+  const pageUrl = entry.url?.trim() || "";
+  if (entry.thumbnail && isUsableArticleThumbnail(entry.thumbnail, pageUrl)) {
+    return entry.thumbnail;
+  }
   if (entry.type === "youtube" && entry.url) return youtubeThumbFromUrl(entry.url);
   return undefined;
+}
+
+function hideArticlePreview() {
+  const articleWrap = $("#entry-preview-article-wrap");
+  const articleIframe = $("#entry-preview-article-iframe");
+  if (articleWrap) articleWrap.hidden = true;
+  if (articleIframe) {
+    articleIframe.removeAttribute("src");
+    articleIframe.hidden = true;
+  }
 }
 
 function renderThumbContent(entry, iconClass) {
@@ -465,7 +479,11 @@ async function loadPreviewReader(url) {
   if (!reader || previewReaderLoading) return;
   previewReaderLoading = true;
   previewReaderUrl = url;
-  if (iframe) iframe.hidden = true;
+  hideArticlePreview();
+  if (iframe) {
+    iframe.hidden = true;
+    iframe.removeAttribute("src");
+  }
   reader.hidden = false;
   reader.innerHTML = `<p class="entry-preview__reader-loading">본문을 불러오는 중…</p>`;
   try {
@@ -499,6 +517,8 @@ function setPreviewReaderMode(on) {
     return;
   }
   if (on) {
+    hideArticlePreview();
+    if (readerBtn) readerBtn.hidden = false;
     loadPreviewReader(url);
   } else {
     previewReaderUrl = "";
@@ -576,6 +596,12 @@ function updateContentPreview() {
     loadYoutubeInfo(url);
   } else if (embedUrl) {
     if (iframeBlocked) {
+      hideArticlePreview();
+      if (iframe) {
+        iframe.hidden = true;
+        iframe.removeAttribute("src");
+      }
+      if (readerBtn) readerBtn.hidden = false;
       setPreviewReaderMode(true);
       return;
     }
@@ -770,13 +796,19 @@ function activateView(view) {
 }
 
 /* ── Metadata fetch ── */
-function applyMetadataToForm(meta) {
+function applyMetadataToForm(meta, { forceThumbnail = false } = {}) {
   const isNew = !editingId;
+  const url = $("#entry-url").value.trim();
   if (meta.type) $("#entry-type").value = meta.type;
   if (meta.title && (isNew || !$("#entry-title").value.trim())) {
     $("#entry-title").value = meta.title;
   }
-  if (meta.thumbnail) form.dataset.pendingThumbnail = meta.thumbnail;
+  if (meta.thumbnail && isUsableArticleThumbnail(meta.thumbnail, url)) {
+    const current = form.dataset.pendingThumbnail;
+    if (forceThumbnail || !current || !isUsableArticleThumbnail(current, url)) {
+      form.dataset.pendingThumbnail = meta.thumbnail;
+    }
+  }
   if (meta.publishedAt && (isNew || !$("#entry-published").value.trim())) {
     $("#entry-published").value = meta.publishedAt;
   }
@@ -791,9 +823,12 @@ async function ensurePublishedDateOnForm(url) {
 }
 
 function needsMetadataFetch() {
+  const url = $("#entry-url").value.trim();
+  const thumb = form.dataset.pendingThumbnail;
   return (
     !$("#entry-title").value.trim() ||
-    !form.dataset.pendingThumbnail ||
+    !thumb ||
+    !isUsableArticleThumbnail(thumb, url) ||
     !$("#entry-published").value.trim()
   );
 }
@@ -805,9 +840,17 @@ async function handleFetchMeta({ silent = false } = {}) {
   if (!silent) { btn.textContent = "가져오는 중…"; btn.setAttribute("disabled", "true"); }
   try {
     const meta = await fetchMetadata(url);
-    applyMetadataToForm(meta);
+    applyMetadataToForm(meta, { forceThumbnail: !silent });
     $("#entry-type").value = detectMediaType(url);
     await ensurePublishedDateOnForm(url);
+    if (editingId && meta.thumbnail) {
+      const entry = entries.find((e) => e.id === editingId);
+      if (entry) {
+        entry.thumbnail = meta.thumbnail;
+        renderFeed();
+      }
+    }
+    updateContentPreview();
   } catch {
     if (!silent) alert("제목·날짜를 자동으로 가져오지 못했습니다. 직접 입력해 주세요.");
   } finally {

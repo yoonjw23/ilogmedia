@@ -766,9 +766,9 @@ function normalizeArticleThumbnail(thumb, pageUrl) {
     const host = u.hostname.replace(/^www\./, "");
 
     // 네이버 이미지 서버: type 파라미터를 큰 썸네일 규격으로 보정
-    if (pageHost.includes("naver.com") || host.includes("pstatic.net") || host.includes("naver.com")) {
+    if (pageHost.includes("naver") || host.includes("pstatic.net")) {
       const t = u.searchParams.get("type");
-      if (!t || /^(s\d+|w\d+)$/.test(t)) {
+      if (!t || /^(s\d+|w\d+)$/i.test(t)) {
         u.searchParams.set("type", "w966");
       }
       out = u.toString();
@@ -778,6 +778,18 @@ function normalizeArticleThumbnail(thumb, pageUrl) {
   }
 
   return out;
+}
+
+/** @param {string | undefined} thumb @param {string} [pageUrl] */
+export function isUsableArticleThumbnail(thumb, pageUrl = "") {
+  const normalized = normalizeArticleThumbnail(thumb, pageUrl || thumb || "");
+  if (!normalized) return false;
+  const t = normalized.toLowerCase();
+  const small = t.match(/type=s(\d+)/);
+  if (small && Number(small[1]) < 200) return false;
+  const w = t.match(/type=w(\d+)/);
+  if (w && Number(w[1]) < 200) return false;
+  return true;
 }
 
 /** @param {string} raw */
@@ -973,10 +985,16 @@ async function fetchMetadataClient(url) {
     fetchNoembed(url),
   ]);
 
+  let thumbnail = htmlMeta.thumbnail;
+  if (!isUsableArticleThumbnail(thumbnail, url)) thumbnail = undefined;
+  if (!thumbnail && isUsableArticleThumbnail(noembed.thumbnail, url)) {
+    thumbnail = normalizeArticleThumbnail(noembed.thumbnail, url);
+  }
+
   return {
     type,
     title: htmlMeta.title || noembed.title,
-    thumbnail: htmlMeta.thumbnail || noembed.thumbnail,
+    thumbnail,
     publishedAt: htmlMeta.publishedAt || noembed.publishedAt || urlDate,
   };
 }
@@ -1012,6 +1030,14 @@ export async function fetchMetadata(url) {
 
   if (url.includes("economist.com")) {
     result = await enrichEconomistMetadata(url, result);
+  }
+
+  if (result.thumbnail) {
+    const thumb = normalizeArticleThumbnail(result.thumbnail, url);
+    result = {
+      ...result,
+      thumbnail: isUsableArticleThumbnail(thumb, url) ? thumb : undefined,
+    };
   }
 
   return result;
