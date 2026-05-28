@@ -485,6 +485,87 @@ function decodeHtmlEntities(s) {
     .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)));
 }
 
+/** @param {string} url */
+export function isNaverArticleHost(url) {
+  try {
+    const host = new URL(url).hostname.replace(/^www\./, "");
+    return host.includes("naver");
+  } catch {
+    return false;
+  }
+}
+
+/** @param {string} html */
+function htmlToPlainText(html) {
+  return decodeHtmlEntities(
+    html
+      .replace(/<script[\s\S]*?<\/script>/gi, "")
+      .replace(/<style[\s\S]*?<\/style>/gi, "")
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/p>/gi, "\n\n")
+      .replace(/<\/div>/gi, "\n")
+      .replace(/<[^>]+>/g, "")
+      .replace(/\u00a0/g, " ")
+  )
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/** @param {string} html */
+function extractNaverArticleBodyFromHtml(html) {
+  if (!html || !/<html|dic_area|newsct_article/i.test(html)) return null;
+
+  const patterns = [
+    /<article[^>]*\bid=["']dic_area["'][^>]*>([\s\S]*?)<\/article>/i,
+    /<div[^>]*\bid=["']dic_area["'][^>]*>([\s\S]*?)<\/div>/i,
+    /<div[^>]*\bid=["']newsct_article["'][^>]*>([\s\S]*?)<\/div>/i,
+    /<div[^>]*class=["'][^"']*newsct_article[^"']*["'][^>]*>([\s\S]*?)<\/div>/i,
+  ];
+
+  for (const re of patterns) {
+    const m = html.match(re);
+    if (m?.[1]) {
+      const text = htmlToPlainText(m[1]);
+      if (text.length >= 80) return text;
+    }
+  }
+  return null;
+}
+
+/** @param {string} html */
+function extractNaverThumbnailFromHtml(html) {
+  const og = metaContent(html, "og:image");
+  if (og && /pstatic\.net|naver\.net/i.test(og)) {
+    return og;
+  }
+  const img = html.match(
+    /<img[^>]+(?:data-src|src)=["'](https?:\/\/imgnews\.pstatic\.net\/[^"']+)["']/i
+  );
+  return img?.[1];
+}
+
+/** @param {string} text */
+function cleanJinaNaverText(text) {
+  const navOnly =
+    /^(조선일보|동아일보|중앙일보|한겨레|경향신문|한국일보|국민일보|세계일보|문화일보|매일경제|한국경제|서울신문|뉴스|연예|스포츠|날씨|프리미엄|정치|경제|사회|생활|세계|IT·과학|오피니언|문화|스포츠|연예|문화|라이프|양방향|많이 본|실시간|오늘의|헤드라인|포토|TV|신문보기|랭킹|프리미엄)$/;
+
+  return text
+    .split("\n")
+    .filter((line) => {
+      const t = line.trim();
+      if (!t) return true;
+      if (/^\[\]\(https?:\/\//.test(t)) return false;
+      if (/^https?:\/\/(www\.)?naver\.com/i.test(t)) return false;
+      if (navOnly.test(t)) return false;
+      if (/^\[.*\]\(https?:\/\/news\.naver\.com/i.test(t)) return false;
+      return true;
+    })
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 /** @param {string} html */
 function extractTitleFromHtml(html) {
   return (
@@ -755,8 +836,15 @@ function normalizeArticleThumbnail(thumb, pageUrl) {
   let out = thumb.trim();
   if (!out) return undefined;
 
-  // 파비콘/로고 등 매우 작은 대표 아이콘은 썸네일로 쓰지 않음.
-  if (/(favicon|apple-touch-icon|logo|icon|sprite|blank\.(gif|png))/i.test(out)) {
+  // 파비콘/로고/네이버 UI 아이콘은 썸네일로 쓰지 않음.
+  if (
+    /(favicon|apple-touch-icon|logo|icon|sprite|blank\.(gif|png)|sstatic\.naver|static\.naver|\/ico_|news_0200)/i.test(
+      out
+    )
+  ) {
+    return undefined;
+  }
+  if (/pstatic\.net/i.test(out) && !/imgnews\.pstatic\.net/i.test(out)) {
     return undefined;
   }
 
@@ -793,7 +881,12 @@ export function isUsableArticleThumbnail(thumb, pageUrl = "") {
 }
 
 /** @param {string} raw */
-function extractReaderTextFromPage(raw) {
+function extractReaderTextFromPage(raw, pageUrl = "") {
+  if (/<html|dic_area|newsct_article/i.test(raw)) {
+    const fromNaver = extractNaverArticleBodyFromHtml(raw);
+    if (fromNaver) return fromNaver;
+  }
+
   const markdown = raw.match(/Markdown Content:\s*\n([\s\S]+)/i)?.[1];
   let text = (markdown ?? raw).trim();
   text = text
@@ -807,19 +900,43 @@ function extractReaderTextFromPage(raw) {
     .replace(/^\s*[-*]\s+/gm, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+
+  if (isNaverArticleHost(pageUrl)) {
+    text = cleanJinaNaverText(text);
+  }
   return text;
 }
 
 /** @param {string} url @returns {Promise<string>} 읽기·번역용 본문 텍스트 */
 export async function fetchArticleReaderText(url) {
+  if (isNaverArticleHost(url)) {
+    try {
+      const html = await fetchPageHtmlForMetadata(url);
+      const body = extractNaverArticleBodyFromHtml(html);
+      if (body && body.length >= 80) return body;
+      const fallback = extractReaderTextFromPage(html, url);
+      if (fallback.length >= 80) return fallback;
+    } catch {
+      /* fall through */
+    }
+  }
+
   const raw = await fetchPageHtml(url);
-  return extractReaderTextFromPage(raw);
+  if (/<html|dic_area|newsct_article/i.test(raw)) {
+    const body = extractNaverArticleBodyFromHtml(raw);
+    if (body && body.length >= 80) return body;
+  }
+  return extractReaderTextFromPage(raw, url);
 }
 
 /** @param {string} url */
 async function fetchArticleFromHtml(url) {
   const html = await fetchPageHtmlForMetadata(url);
-  const thumb = normalizeArticleThumbnail(extractThumbnailFromHtml(html), url);
+  let thumb = extractThumbnailFromHtml(html);
+  if (isNaverArticleHost(url)) {
+    thumb = extractNaverThumbnailFromHtml(html) || thumb;
+  }
+  thumb = normalizeArticleThumbnail(thumb, url);
   return {
     title: extractTitleFromPageText(html),
     thumbnail: thumb,

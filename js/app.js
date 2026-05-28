@@ -25,6 +25,7 @@ import {
   getContentPreviewEmbedUrl,
   isPaywalledPreviewHost,
   isIframeBlockedPreviewHost,
+  isNaverArticleHost,
   isUsableArticleThumbnail,
   fetchArticleReaderText,
   extractPublishedDateFromUrl,
@@ -718,7 +719,17 @@ function openDialog(id = null) {
 
   dialog.classList.toggle("dialog--form-only", isMobileLayout());
   if (isMobileLayout()) clearContentPreview();
-  else updateContentPreview();
+  else {
+    updateContentPreview();
+    const url = entry?.url?.trim() || "";
+    if (
+      url &&
+      isNaverArticleHost(url) &&
+      !isUsableArticleThumbnail(entry?.thumbnail, url)
+    ) {
+      void handleFetchMeta({ silent: true });
+    }
+  }
   dialog.showModal();
 }
 
