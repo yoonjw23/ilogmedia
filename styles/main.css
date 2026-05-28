@@ -1140,6 +1140,21 @@ button.archive-group__label:hover {
   height: auto;
   margin: 1rem auto;
   border-radius: 4px;
+  background: #eee;
+}
+
+.article-view__body figure,
+.article-view__body .img_cont,
+.article-view__body .end_photo_org {
+  margin: 1rem 0;
+}
+
+.article-view__body figcaption,
+.article-view__body .img_desc {
+  margin-top: 0.35rem;
+  font-size: 0.875rem;
+  color: #555;
+  text-align: center;
 }
 
 .article-view__body p {

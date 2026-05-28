@@ -102,23 +102,41 @@ function extractNaverArticleInnerHtml(html) {
   return null;
 }
 
+function pickAttr(tag, name) {
+  const m = tag.match(new RegExp(`\\b${name}=["']([^"']+)["']`, "i"));
+  return m?.[1];
+}
+
+function resolveImgSrc(tag, baseUrl) {
+  const candidates = [
+    pickAttr(tag, "data-src"),
+    pickAttr(tag, "data-original-src"),
+    pickAttr(tag, "data-lazy-src"),
+    pickAttr(tag, "src"),
+  ].filter(Boolean);
+  const src =
+    candidates.find((s) => !s.startsWith("data:") && !/blank\.(gif|png)/i.test(s)) ||
+    candidates[0];
+  if (!src) return null;
+  try {
+    return new URL(src, baseUrl).href;
+  } catch {
+    return null;
+  }
+}
+
 function sanitizeArticleHtml(dirty, baseUrl) {
   let out = dirty
     .replace(/<script[\s\S]*?<\/script>/gi, "")
     .replace(/<style[\s\S]*?<\/style>/gi, "")
     .replace(/\s+on\w+="[^"]*"/gi, "");
 
-  out = out.replace(
-    /(<img[^>]+)(?:src|data-src)=["']([^"']+)["']/gi,
-    (_, prefix, src) => {
-      try {
-        const abs = new URL(src, baseUrl).href;
-        return `${prefix}src="${abs}" loading="lazy"`;
-      } catch {
-        return "";
-      }
-    }
-  );
+  out = out.replace(/<img\b[^>]*>/gi, (tag) => {
+    const abs = resolveImgSrc(tag, baseUrl);
+    if (!abs) return "";
+    const alt = pickAttr(tag, "alt") || "";
+    return `<img src="${abs}" alt="${alt.replace(/"/g, "&quot;")}" loading="lazy" referrerpolicy="no-referrer" />`;
+  });
 
   out = out.replace(/<a\s/gi, '<a target="_blank" rel="noopener noreferrer" ');
   return out.trim();

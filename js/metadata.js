@@ -571,6 +571,7 @@ function sanitizeArticleHtml(dirty, baseUrl) {
     const allowed = new Set([
       "P", "DIV", "SPAN", "BR", "IMG", "A", "STRONG", "B", "EM", "I",
       "H2", "H3", "FIGURE", "FIGCAPTION", "UL", "OL", "LI", "BLOCKQUOTE", "SUB", "SUP",
+      "PICTURE", "SOURCE",
     ]);
 
     const walk = (el) => {
@@ -580,20 +581,44 @@ function sanitizeArticleHtml(dirty, baseUrl) {
           child.remove();
           walk(el);
         } else {
-          [...child.attributes].forEach((attr) => {
-            const n = attr.name.toLowerCase();
-            if (!["href", "src", "alt", "title"].includes(n)) child.removeAttribute(attr.name);
-          });
           if (child.tagName === "IMG") {
-            const src = child.getAttribute("src") || child.getAttribute("data-src");
+            const candidates = [
+              child.getAttribute("data-src"),
+              child.getAttribute("data-original-src"),
+              child.getAttribute("data-lazy-src"),
+              child.getAttribute("src"),
+            ].filter(Boolean);
+            const src =
+              candidates.find(
+                (s) => !s.startsWith("data:") && !/blank\.(gif|png)/i.test(s)
+              ) || candidates[0];
             if (src) {
               try {
                 child.setAttribute("src", new URL(src, baseUrl).href);
+                child.setAttribute("referrerpolicy", "no-referrer");
+                child.setAttribute("loading", "lazy");
               } catch {
                 child.remove();
+                return;
               }
-            } else child.remove();
+            } else {
+              child.remove();
+              return;
+            }
           }
+          if (child.tagName === "SOURCE") {
+            const srcset = child.getAttribute("srcset");
+            if (!srcset) {
+              child.remove();
+              return;
+            }
+          }
+          [...child.attributes].forEach((attr) => {
+            const n = attr.name.toLowerCase();
+            if (!["href", "src", "alt", "title", "srcset", "referrerpolicy", "loading"].includes(n)) {
+              child.removeAttribute(attr.name);
+            }
+          });
           if (child.tagName === "A") {
             child.setAttribute("target", "_blank");
             child.setAttribute("rel", "noopener noreferrer");
