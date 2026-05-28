@@ -504,7 +504,9 @@ async function loadPreviewArticle(url) {
         `<div class="article-view">${titleHtml}<div class="article-view__body">${data.bodyHtml}</div></div>` +
         `<p class="entry-preview__reader-hint article-view__hint">단어를 드래그하면 번역됩니다 · <kbd>Cmd+Shift+T</kbd></p>`;
     } else {
+      previewReaderLoading = false;
       await loadPreviewReader(url);
+      return;
     }
   } catch {
     if (previewReaderUrl === url && !previewTextMode) {

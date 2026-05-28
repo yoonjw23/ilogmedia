@@ -512,22 +512,44 @@ function htmlToPlainText(html) {
     .trim();
 }
 
-/** @param {string} html */
-function extractNaverArticleInnerHtml(html) {
-  if (!html || !/<html|dic_area|newsct_article/i.test(html)) return null;
+/** @param {string} html @param {string} id */
+function extractBalancedInnerHtmlById(html, id) {
+  const openRe = new RegExp(`<(article|div)[^>]*\\bid=["']${id}["'][^>]*>`, "i");
+  const m = html.match(openRe);
+  if (!m) return null;
 
-  const patterns = [
-    /<article[^>]*\bid=["']dic_area["'][^>]*>([\s\S]*?)<\/article>/i,
-    /<div[^>]*\bid=["']dic_area["'][^>]*>([\s\S]*?)<\/div>/i,
-    /<div[^>]*\bid=["']newsct_article["'][^>]*>([\s\S]*?)<\/div>/i,
-    /<div[^>]*class=["'][^"']*newsct_article[^"']*["'][^>]*>([\s\S]*?)<\/div>/i,
-  ];
+  const tag = m[1].toLowerCase();
+  const openEnd = html.indexOf(m[0]) + m[0].length;
+  let depth = 1;
+  let i = openEnd;
+  const reOpen = new RegExp(`<${tag}[\\s>]`, "gi");
+  const reClose = new RegExp(`</${tag}>`, "gi");
 
-  for (const re of patterns) {
-    const m = html.match(re);
-    if (m?.[1] && m[1].trim().length >= 40) return m[1].trim();
+  while (i < html.length && depth > 0) {
+    reOpen.lastIndex = i;
+    reClose.lastIndex = i;
+    const o = reOpen.exec(html);
+    const c = reClose.exec(html);
+    if (!c && !o) break;
+    if (o && (!c || o.index < c.index)) {
+      depth++;
+      i = o.index + o[0].length;
+    } else if (c) {
+      depth--;
+      if (depth === 0) return html.slice(openEnd, c.index).trim();
+      i = c.index + c[0].length;
+    }
   }
   return null;
+}
+
+/** @param {string} html */
+function extractNaverArticleInnerHtml(html) {
+  if (!html || !/dic_area|newsct_article/i.test(html)) return null;
+  return (
+    extractBalancedInnerHtmlById(html, "dic_area") ||
+    extractBalancedInnerHtmlById(html, "newsct_article")
+  );
 }
 
 /** @param {string} html */
@@ -594,6 +616,28 @@ function sanitizeArticleHtml(dirty, baseUrl) {
  */
 export async function fetchArticleViewerHtml(url) {
   if (!isNaverArticleHost(url)) return null;
+
+  try {
+    const ctrl = new AbortController();
+    const timer = window.setTimeout(() => ctrl.abort(), 15000);
+    const res = await fetch(
+      `/.netlify/functions/article-view?url=${encodeURIComponent(url)}`,
+      { signal: ctrl.signal }
+    );
+    window.clearTimeout(timer);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.ok && data.bodyHtml) {
+        const bodyHtml = sanitizeArticleHtml(data.bodyHtml, url);
+        if (bodyHtml.length >= 40) {
+          return { title: data.title || undefined, bodyHtml };
+        }
+      }
+    }
+  } catch {
+    /* fall through to client fetch */
+  }
+
   try {
     const html = await fetchPageHtmlForMetadata(url);
     const inner = extractNaverArticleInnerHtml(html);
