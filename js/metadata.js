@@ -513,7 +513,7 @@ function htmlToPlainText(html) {
 }
 
 /** @param {string} html */
-function extractNaverArticleBodyFromHtml(html) {
+function extractNaverArticleInnerHtml(html) {
   if (!html || !/<html|dic_area|newsct_article/i.test(html)) return null;
 
   const patterns = [
@@ -525,12 +525,88 @@ function extractNaverArticleBodyFromHtml(html) {
 
   for (const re of patterns) {
     const m = html.match(re);
-    if (m?.[1]) {
-      const text = htmlToPlainText(m[1]);
-      if (text.length >= 80) return text;
-    }
+    if (m?.[1] && m[1].trim().length >= 40) return m[1].trim();
   }
   return null;
+}
+
+/** @param {string} html */
+function extractNaverArticleBodyFromHtml(html) {
+  const inner = extractNaverArticleInnerHtml(html);
+  if (!inner) return null;
+  const text = htmlToPlainText(inner);
+  return text.length >= 80 ? text : null;
+}
+
+/** @param {string} dirty @param {string} baseUrl */
+function sanitizeArticleHtml(dirty, baseUrl) {
+  if (!dirty) return "";
+  try {
+    const doc = new DOMParser().parseFromString(`<div id="root">${dirty}</div>`, "text/html");
+    const root = doc.getElementById("root");
+    if (!root) return htmlToPlainText(dirty);
+
+    const allowed = new Set([
+      "P", "DIV", "SPAN", "BR", "IMG", "A", "STRONG", "B", "EM", "I",
+      "H2", "H3", "FIGURE", "FIGCAPTION", "UL", "OL", "LI", "BLOCKQUOTE", "SUB", "SUP",
+    ]);
+
+    const walk = (el) => {
+      [...el.children].forEach((child) => {
+        if (!allowed.has(child.tagName)) {
+          while (child.firstChild) child.parentNode?.insertBefore(child.firstChild, child);
+          child.remove();
+          walk(el);
+        } else {
+          [...child.attributes].forEach((attr) => {
+            const n = attr.name.toLowerCase();
+            if (!["href", "src", "alt", "title"].includes(n)) child.removeAttribute(attr.name);
+          });
+          if (child.tagName === "IMG") {
+            const src = child.getAttribute("src") || child.getAttribute("data-src");
+            if (src) {
+              try {
+                child.setAttribute("src", new URL(src, baseUrl).href);
+              } catch {
+                child.remove();
+              }
+            } else child.remove();
+          }
+          if (child.tagName === "A") {
+            child.setAttribute("target", "_blank");
+            child.setAttribute("rel", "noopener noreferrer");
+          }
+          walk(child);
+        }
+      });
+    };
+    walk(root);
+    return root.innerHTML.trim();
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * 기사 화면용 HTML (제목 + 본문)
+ * @param {string} url
+ * @returns {Promise<{ title?: string, bodyHtml: string } | null>}
+ */
+export async function fetchArticleViewerHtml(url) {
+  if (!isNaverArticleHost(url)) return null;
+  try {
+    const html = await fetchPageHtmlForMetadata(url);
+    const inner = extractNaverArticleInnerHtml(html);
+    if (!inner) return null;
+    const bodyHtml = sanitizeArticleHtml(inner, url);
+    if (!bodyHtml || bodyHtml.length < 40) return null;
+    return {
+      title: extractTitleFromHtml(html),
+      bodyHtml,
+    };
+  } catch {
+    return null;
+  }
 }
 
 /** @param {string} html */

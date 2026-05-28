@@ -1105,6 +1105,60 @@ button.archive-group__label:hover {
   user-select: text;
 }
 
+.entry-preview__reader--article {
+  padding: 0;
+  background: #f4f5f7;
+  color: #1a1a1a;
+}
+
+.article-view {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 1.5rem 1.75rem 1rem;
+  background: #fff;
+  min-height: 100%;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.06);
+}
+
+.article-view__title {
+  margin: 0 0 1.25rem;
+  font-size: 1.375rem;
+  font-weight: 700;
+  line-height: 1.45;
+  color: #111;
+}
+
+.article-view__body {
+  font-size: 1.0625rem;
+  line-height: 1.85;
+  color: #222;
+}
+
+.article-view__body img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 1rem auto;
+  border-radius: 4px;
+}
+
+.article-view__body p {
+  margin: 0 0 1rem;
+}
+
+.article-view__body a {
+  color: #2563eb;
+  text-decoration: underline;
+}
+
+.article-view__hint {
+  margin: 0;
+  padding: 0.65rem 1rem;
+  background: var(--bg-elevated);
+  border-top: 1px solid var(--border);
+  font-size: 0.8125rem;
+}
+
 .entry-preview__reader p {
   margin: 0 0 1rem;
 }

@@ -28,6 +28,7 @@ import {
   isNaverArticleHost,
   isUsableArticleThumbnail,
   fetchArticleReaderText,
+  fetchArticleViewerHtml,
   extractPublishedDateFromUrl,
 } from "./metadata.js";
 import {
@@ -426,6 +427,7 @@ function renderCategoryChips() {
 const PAYWALL_PREVIEW_SANDBOX =
   "allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads";
 let previewReaderMode = false;
+let previewTextMode = false;
 let previewReaderUrl = "";
 let previewReaderLoading = false;
 
@@ -458,6 +460,7 @@ function clearContentPreview() {
   const articleWrap = $("#entry-preview-article-wrap");
   const articleIframe = $("#entry-preview-article-iframe");
   previewReaderMode = false;
+  previewTextMode = false;
   previewReaderUrl = "";
   previewReaderLoading = false;
   hideTranslatePopover();
@@ -474,27 +477,68 @@ function clearContentPreview() {
   if (articleIframe) { articleIframe.removeAttribute("src"); articleIframe.hidden = true; }
 }
 
-async function loadPreviewReader(url) {
+async function loadPreviewArticle(url) {
   const reader = $("#entry-preview-reader");
   const iframe = $("#entry-preview-iframe");
   if (!reader || previewReaderLoading) return;
   previewReaderLoading = true;
   previewReaderUrl = url;
+  previewTextMode = false;
+  previewReaderMode = true;
   hideArticlePreview();
   if (iframe) {
     iframe.hidden = true;
     iframe.removeAttribute("src");
   }
   reader.hidden = false;
+  reader.classList.add("entry-preview__reader--article");
+  reader.innerHTML = `<p class="entry-preview__reader-loading">기사를 불러오는 중…</p>`;
+  try {
+    const data = await fetchArticleViewerHtml(url);
+    if (previewReaderUrl !== url || previewTextMode) return;
+    if (data?.bodyHtml) {
+      const titleHtml = data.title
+        ? `<h1 class="article-view__title">${escapeHtml(data.title)}</h1>`
+        : "";
+      reader.innerHTML =
+        `<div class="article-view">${titleHtml}<div class="article-view__body">${data.bodyHtml}</div></div>` +
+        `<p class="entry-preview__reader-hint article-view__hint">단어를 드래그하면 번역됩니다 · <kbd>Cmd+Shift+T</kbd></p>`;
+    } else {
+      await loadPreviewReader(url);
+    }
+  } catch {
+    if (previewReaderUrl === url && !previewTextMode) {
+      reader.innerHTML = `<p class="entry-preview__reader-empty">기사를 불러오지 못했습니다. <a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">새 탭에서 열기</a></p>`;
+    }
+  } finally {
+    previewReaderLoading = false;
+  }
+}
+
+async function loadPreviewReader(url) {
+  const reader = $("#entry-preview-reader");
+  const iframe = $("#entry-preview-iframe");
+  if (!reader || previewReaderLoading) return;
+  previewReaderLoading = true;
+  previewReaderUrl = url;
+  previewTextMode = true;
+  previewReaderMode = true;
+  hideArticlePreview();
+  if (iframe) {
+    iframe.hidden = true;
+    iframe.removeAttribute("src");
+  }
+  reader.hidden = false;
+  reader.classList.remove("entry-preview__reader--article");
   reader.innerHTML = `<p class="entry-preview__reader-loading">본문을 불러오는 중…</p>`;
   try {
     const text = await fetchArticleReaderText(url);
-    if (previewReaderUrl !== url || !previewReaderMode) return;
+    if (previewReaderUrl !== url || !previewTextMode) return;
     reader.innerHTML =
       `<p class="entry-preview__reader-hint">단어를 드래그하거나 클릭하면 번역됩니다. 중국어는 병음·성조 표시 · <kbd>Cmd+Shift+T</kbd> (복사 후 번역)</p>` +
       renderReaderHtml(text);
   } catch {
-    if (previewReaderUrl === url && previewReaderMode) {
+    if (previewReaderUrl === url && previewTextMode) {
       reader.innerHTML = `<p class="entry-preview__reader-empty">본문을 불러오지 못했습니다.</p>`;
     }
   } finally {
@@ -507,15 +551,31 @@ function setPreviewReaderMode(on) {
   const iframe = $("#entry-preview-iframe");
   const reader = $("#entry-preview-reader");
   const readerBtn = $("#btn-preview-reader");
+  const iframeBlocked = isIframeBlockedPreviewHost(url);
+
+  if (!url.startsWith("http") || detectMediaType(url) === "youtube") {
+    previewReaderMode = false;
+    previewTextMode = false;
+    if (reader) reader.hidden = true;
+    return;
+  }
+
+  if (iframeBlocked) {
+    previewReaderMode = true;
+    if (readerBtn) {
+      readerBtn.textContent = on ? "기사 보기" : "텍스트·번역";
+      readerBtn.classList.toggle("btn--active", on);
+      readerBtn.hidden = false;
+    }
+    if (on) loadPreviewReader(url);
+    else loadPreviewArticle(url);
+    return;
+  }
+
   previewReaderMode = on;
   if (readerBtn) {
     readerBtn.textContent = on ? "원본 보기" : "번역 읽기";
     readerBtn.classList.toggle("btn--active", on);
-  }
-  if (!url.startsWith("http") || detectMediaType(url) === "youtube") {
-    previewReaderMode = false;
-    if (reader) reader.hidden = true;
-    return;
   }
   if (on) {
     hideArticlePreview();
@@ -523,14 +583,20 @@ function setPreviewReaderMode(on) {
     loadPreviewReader(url);
   } else {
     previewReaderUrl = "";
+    previewTextMode = false;
     hideTranslatePopover();
-    if (reader) { reader.hidden = true; reader.innerHTML = ""; }
+    if (reader) { reader.hidden = true; reader.innerHTML = ""; reader.classList.remove("entry-preview__reader--article"); }
     if (iframe && iframe.getAttribute("src")) iframe.hidden = false;
     else updateContentPreview();
   }
 }
 
 function togglePreviewReaderMode() {
+  const url = $("#entry-url").value.trim();
+  if (isIframeBlockedPreviewHost(url) && detectMediaType(url) !== "youtube") {
+    setPreviewReaderMode(!previewTextMode);
+    return;
+  }
   setPreviewReaderMode(!previewReaderMode);
 }
 
@@ -577,7 +643,10 @@ function updateContentPreview() {
   if (readerBtn) readerBtn.hidden = isYoutube;
 
   if (previewReaderMode && !isYoutube) {
-    if (previewReaderUrl !== url) loadPreviewReader(url);
+    if (previewReaderUrl !== url) {
+      if (previewTextMode || !isIframeBlockedPreviewHost(url)) loadPreviewReader(url);
+      else loadPreviewArticle(url);
+    }
     return;
   }
 
@@ -602,8 +671,15 @@ function updateContentPreview() {
         iframe.hidden = true;
         iframe.removeAttribute("src");
       }
-      if (readerBtn) readerBtn.hidden = false;
-      setPreviewReaderMode(true);
+      if (readerBtn) {
+        readerBtn.hidden = false;
+        readerBtn.textContent = "텍스트·번역";
+        readerBtn.classList.remove("btn--active");
+      }
+      previewReaderMode = true;
+      previewTextMode = false;
+      loadPreviewArticle(url);
+      if (openLink) { openLink.href = url; openLink.hidden = false; }
       return;
     }
     if (articleIframe) {
