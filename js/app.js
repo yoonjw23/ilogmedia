@@ -24,6 +24,7 @@ import {
   fetchPublishedDate,
   getContentPreviewEmbedUrl,
   isPaywalledPreviewHost,
+  isIframeBlockedPreviewHost,
   fetchArticleReaderText,
   extractPublishedDateFromUrl,
 } from "./metadata.js";
@@ -560,6 +561,7 @@ function updateContentPreview() {
   }
 
   const paywalled = isPaywalledPreviewHost(url);
+  const iframeBlocked = isIframeBlockedPreviewHost(url);
   const embedUrl = getContentPreviewEmbedUrl(url);
 
   if (isYoutube && embedUrl) {
@@ -573,6 +575,10 @@ function updateContentPreview() {
     empty.hidden = true;
     loadYoutubeInfo(url);
   } else if (embedUrl) {
+    if (iframeBlocked) {
+      setPreviewReaderMode(true);
+      return;
+    }
     if (articleIframe) {
       if (articleIframe.getAttribute("src") !== embedUrl) articleIframe.src = embedUrl;
       if (paywalled) articleIframe.setAttribute("sandbox", PAYWALL_PREVIEW_SANDBOX);

@@ -84,6 +84,20 @@ export function isPaywalledPreviewHost(url) {
   }
 }
 
+/** iframe 미리보기를 자주 차단하는 호스트 */
+// naver.me 단축 URL 포함 (host에 "naver.com"만 검사하면 naver.me가 누락됨)
+const IFRAME_BLOCKED_PREVIEW_HOSTS = ["naver", "daum.net", "kakao.com"];
+
+/** @param {string} url */
+export function isIframeBlockedPreviewHost(url) {
+  try {
+    const host = new URL(url).hostname.replace(/^www\./, "");
+    return IFRAME_BLOCKED_PREVIEW_HOSTS.some((h) => host.includes(h));
+  } catch {
+    return false;
+  }
+}
+
 /** @param {string} url — 미리보기 iframe용 embed URL (원본 URL, 아카이브 미사용) */
 export function getContentPreviewEmbedUrl(url) {
   try {
@@ -701,6 +715,71 @@ export async function fetchPageHtml(url) {
   throw lastErr ?? new Error("page fetch failed");
 }
 
+/** @param {string} url @returns {Promise<string>} 메타 파싱용 원문 HTML 우선 */
+async function fetchPageHtmlForMetadata(url) {
+  const proxies = [
+    (u) => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
+    (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+    (u) => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+    (u) => `https://r.jina.ai/${u}`,
+  ];
+  let lastErr;
+  for (const build of proxies) {
+    const ctrl = new AbortController();
+    const timer = window.setTimeout(() => ctrl.abort(), 10000);
+    try {
+      const req = build(url);
+      const res = await fetch(req, { signal: ctrl.signal });
+      let text = await res.text();
+      if (req.includes("allorigins.win/get")) {
+        try {
+          const wrapped = JSON.parse(text);
+          if (wrapped?.contents) text = wrapped.contents;
+        } catch {
+          /* keep raw */
+        }
+      }
+      if (res.ok && text.length > 300) return text;
+    } catch (e) {
+      lastErr = e;
+    } finally {
+      window.clearTimeout(timer);
+    }
+  }
+  throw lastErr ?? new Error("page fetch failed");
+}
+
+/** @param {string | undefined} thumb @param {string} pageUrl */
+function normalizeArticleThumbnail(thumb, pageUrl) {
+  if (!thumb) return undefined;
+  let out = thumb.trim();
+  if (!out) return undefined;
+
+  // 파비콘/로고 등 매우 작은 대표 아이콘은 썸네일로 쓰지 않음.
+  if (/(favicon|apple-touch-icon|logo|icon|sprite|blank\.(gif|png))/i.test(out)) {
+    return undefined;
+  }
+
+  try {
+    const pageHost = new URL(pageUrl).hostname.replace(/^www\./, "");
+    const u = new URL(out, pageUrl);
+    const host = u.hostname.replace(/^www\./, "");
+
+    // 네이버 이미지 서버: type 파라미터를 큰 썸네일 규격으로 보정
+    if (pageHost.includes("naver.com") || host.includes("pstatic.net") || host.includes("naver.com")) {
+      const t = u.searchParams.get("type");
+      if (!t || /^(s\d+|w\d+)$/.test(t)) {
+        u.searchParams.set("type", "w966");
+      }
+      out = u.toString();
+    }
+  } catch {
+    /* keep original */
+  }
+
+  return out;
+}
+
 /** @param {string} raw */
 function extractReaderTextFromPage(raw) {
   const markdown = raw.match(/Markdown Content:\s*\n([\s\S]+)/i)?.[1];
@@ -727,10 +806,11 @@ export async function fetchArticleReaderText(url) {
 
 /** @param {string} url */
 async function fetchArticleFromHtml(url) {
-  const html = await fetchPageHtml(url);
+  const html = await fetchPageHtmlForMetadata(url);
+  const thumb = normalizeArticleThumbnail(extractThumbnailFromHtml(html), url);
   return {
     title: extractTitleFromPageText(html),
-    thumbnail: extractThumbnailFromHtml(html),
+    thumbnail: thumb,
     publishedAt:
       extractPublishedDateFromPageText(html) ||
       extractPublishedDateFromHtml(html) ||
