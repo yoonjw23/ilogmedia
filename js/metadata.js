@@ -1,6 +1,7 @@
 /**
  * URL 메타데이터 (유튜브 oEmbed, 기사 HTML og/meta 파싱)
  */
+import { extractNaverArticleMeta } from "./naver-article-meta.mjs";
 
 /** @typedef {'youtube'|'article'|'podcast'|'book'|'other'} MediaType */
 
@@ -637,7 +638,7 @@ function sanitizeArticleHtml(dirty, baseUrl) {
 /**
  * 기사 화면용 HTML (제목 + 본문)
  * @param {string} url
- * @returns {Promise<{ title?: string, bodyHtml: string, publishedAt?: string, publishedLabel?: string, press?: string, author?: string } | null>}
+ * @returns {Promise<{ title?: string, bodyHtml: string, publishedAt?: string, modifiedAt?: string, publishedLabel?: string, modifiedLabel?: string, press?: string, pressLogo?: string, journalists?: { name: string, role?: string, photo?: string }[], author?: string, subtitle?: string } | null>}
  */
 export async function fetchArticleViewerHtml(url) {
   if (!isNaverArticleHost(url)) return null;
@@ -655,14 +656,7 @@ export async function fetchArticleViewerHtml(url) {
       if (data.ok && data.bodyHtml) {
         const bodyHtml = sanitizeArticleHtml(data.bodyHtml, url);
         if (bodyHtml.length >= 40) {
-          return {
-            title: data.title || undefined,
-            bodyHtml,
-            publishedAt: data.publishedAt || undefined,
-            publishedLabel: data.publishedLabel || undefined,
-            press: data.press || undefined,
-            author: data.author || undefined,
-          };
+          return buildArticleViewData(data.title, bodyHtml, data);
         }
       }
     }
@@ -676,53 +670,35 @@ export async function fetchArticleViewerHtml(url) {
     if (!inner) return null;
     const bodyHtml = sanitizeArticleHtml(inner, url);
     if (!bodyHtml || bodyHtml.length < 40) return null;
-    return {
-      title: extractTitleFromHtml(html),
-      bodyHtml,
+    const meta = extractNaverArticleMeta(html, url);
+    return buildArticleViewData(extractTitleFromHtml(html), bodyHtml, {
+      ...meta,
       publishedAt:
+        meta.publishedAt ||
         extractPublishedDateFromHtml(html) ||
         extractPublishedDateFromUrl(url) ||
         undefined,
-      publishedLabel: extractNaverPublishedLabel(html),
-      press: extractNaverPress(html),
-      author: extractNaverAuthors(html),
-    };
+    });
   } catch {
     return null;
   }
 }
 
-/** @param {string} html */
-function extractNaverPublishedLabel(html) {
-  const m = html.match(/class=["'][^"']*media_end_head_info_datestamp[^"']*["'][^>]*>([^<]+)</i);
-  if (m?.[1]) return decodeHtmlEntities(m[1].trim());
-  const input = html.match(/입력\s*(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})(?:\.\s*([^<]{0,40}))?/i);
-  if (!input) return undefined;
-  const time = input[4] ? ` ${input[4].trim()}` : "";
-  return `입력 ${input[1]}. ${input[2]}. ${input[3]}.${time}`;
-}
-
-/** @param {string} html */
-function extractNaverPress(html) {
-  return (
-    metaContent(html, "og:article:author") ||
-    (() => {
-      const m = html.match(/class=["'][^"']*media_end_head_top[^"']*["'][^>]*>[\s\S]*?alt=["']([^"']+)["']/i);
-      return m?.[1] ? decodeHtmlEntities(m[1].trim()) : undefined;
-    })()
-  );
-}
-
-/** @param {string} html */
-function extractNaverAuthors(html) {
-  const names = [];
-  const re = /class=["'][^"']*media_journalist[^"']*["'][^>]*>([^<]+)</gi;
-  let m;
-  while ((m = re.exec(html)) !== null) {
-    const name = decodeHtmlEntities(m[1].trim());
-    if (name && !names.includes(name)) names.push(name);
-  }
-  return names.length > 0 ? names.join(", ") : undefined;
+/** @param {string | undefined} title @param {string} bodyHtml @param {Record<string, unknown>} meta */
+function buildArticleViewData(title, bodyHtml, meta) {
+  return {
+    title: title || undefined,
+    bodyHtml,
+    publishedAt: meta.publishedAt || undefined,
+    modifiedAt: meta.modifiedAt || undefined,
+    publishedLabel: meta.publishedLabel || undefined,
+    modifiedLabel: meta.modifiedLabel || undefined,
+    press: meta.press || undefined,
+    pressLogo: meta.pressLogo || undefined,
+    journalists: meta.journalists || undefined,
+    author: meta.author || undefined,
+    subtitle: meta.subtitle || undefined,
+  };
 }
 
 /** @param {string} html */

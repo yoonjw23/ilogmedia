@@ -1120,33 +1120,91 @@ button.archive-group__label:hover {
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.06);
 }
 
+.article-view__head {
+  margin-bottom: 1.25rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.article-view__press {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.85rem;
+}
+
+.article-view__press-logo {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.article-view__press-name {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: #222;
+}
+
 .article-view__title {
-  margin: 0 0 0.75rem;
+  margin: 0 0 0.85rem;
   font-size: 1.375rem;
   font-weight: 700;
   line-height: 1.45;
   color: #111;
 }
 
-.article-view__meta {
+.article-view__journalists {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.35rem 0.75rem;
-  margin: 0 0 1.25rem;
-  padding-bottom: 1rem;
-  border-bottom: 1px solid #e5e7eb;
+  gap: 0.65rem 1rem;
+  margin-bottom: 0.65rem;
+}
+
+.article-view__journalist {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
   font-size: 0.875rem;
-  color: #555;
+  color: #333;
 }
 
-.article-view__meta-item::after {
-  content: "·";
-  margin-left: 0.75rem;
-  color: #bbb;
+.article-view__journalist-photo {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: #e8eaed;
 }
 
-.article-view__meta-item:last-child::after {
-  content: none;
+.article-view__journalist-photo--placeholder {
+  display: inline-block;
+}
+
+.article-view__journalist-name {
+  font-weight: 600;
+}
+
+.article-view__journalist-role {
+  color: #666;
+}
+
+.article-view__dates {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.8125rem;
+  color: #666;
+}
+
+.article-view__subtitle {
+  margin: 0.75rem 0 0;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  line-height: 1.5;
+  color: #1a1a1a;
 }
 
 .article-view__body {

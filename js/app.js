@@ -477,29 +477,69 @@ function clearContentPreview() {
   if (articleIframe) { articleIframe.removeAttribute("src"); articleIframe.hidden = true; }
 }
 
+function dedupeArticleSubtitleInBody(bodyHtml, subtitle) {
+  if (!subtitle) return bodyHtml;
+  const esc = subtitle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return bodyHtml.replace(
+    new RegExp(`^\\s*<strong[^>]*>\\s*${esc}\\s*</strong>\\s*`, "i"),
+    ""
+  );
+}
+
 function renderArticleViewHeader(data) {
   const title = data.title || $("#entry-title").value.trim() || "";
+  const press = data.press || "";
+  const pressLogo = data.pressLogo || "";
+  const subtitle = data.subtitle || "";
+  const journalists = Array.isArray(data.journalists) ? data.journalists : [];
   const publishedLabel =
     data.publishedLabel ||
     (data.publishedAt ? formatDate(data.publishedAt) : "") ||
     ($("#entry-published").value ? formatDate($("#entry-published").value) : "");
-  const press = data.press || "";
-  const author = data.author || "";
+  const modifiedLabel = data.modifiedLabel || "";
+  const authorFallback = data.author || "";
 
-  const metaItems = [];
-  if (publishedLabel) metaItems.push(publishedLabel);
-  if (press) metaItems.push(press);
-  if (author) metaItems.push(`기자 ${author}`);
+  let html = `<header class="article-view__head">`;
 
-  let html = "";
+  if (press || pressLogo) {
+    const logoHtml = pressLogo
+      ? `<img class="article-view__press-logo" src="${escapeHtml(pressLogo)}" alt="${escapeHtml(press || "언론사")}" loading="lazy" referrerpolicy="no-referrer" />`
+      : "";
+    html += `<div class="article-view__press">${logoHtml}<span class="article-view__press-name">${escapeHtml(press || "언론사")}</span></div>`;
+  }
+
   if (title) {
     html += `<h1 class="article-view__title">${escapeHtml(title)}</h1>`;
   }
-  if (metaItems.length > 0) {
-    html += `<div class="article-view__meta">${metaItems
-      .map((item) => `<span class="article-view__meta-item">${escapeHtml(item)}</span>`)
+
+  if (journalists.length > 0) {
+    html += `<div class="article-view__journalists">${journalists
+      .map((j) => {
+        const photo = j.photo
+          ? `<img class="article-view__journalist-photo" src="${escapeHtml(j.photo)}" alt="" loading="lazy" referrerpolicy="no-referrer" />`
+          : `<span class="article-view__journalist-photo article-view__journalist-photo--placeholder" aria-hidden="true"></span>`;
+        const role = j.role ? `<span class="article-view__journalist-role">${escapeHtml(j.role)}</span>` : "";
+        return `<div class="article-view__journalist">${photo}<span class="article-view__journalist-name">${escapeHtml(j.name)}</span>${role}</div>`;
+      })
+      .join("")}</div>`;
+  } else if (authorFallback) {
+    html += `<div class="article-view__journalists"><div class="article-view__journalist"><span class="article-view__journalist-photo article-view__journalist-photo--placeholder" aria-hidden="true"></span><span class="article-view__journalist-name">${escapeHtml(authorFallback)}</span><span class="article-view__journalist-role">기자</span></div></div>`;
+  }
+
+  const dates = [];
+  if (publishedLabel) dates.push(publishedLabel);
+  if (modifiedLabel) dates.push(modifiedLabel);
+  if (dates.length > 0) {
+    html += `<div class="article-view__dates">${dates
+      .map((d) => `<span class="article-view__date">${escapeHtml(d)}</span>`)
       .join("")}</div>`;
   }
+
+  if (subtitle) {
+    html += `<p class="article-view__subtitle">${escapeHtml(subtitle)}</p>`;
+  }
+
+  html += `</header>`;
   return html;
 }
 
@@ -523,9 +563,10 @@ async function loadPreviewArticle(url) {
     const data = await fetchArticleViewerHtml(url);
     if (previewReaderUrl !== url || previewTextMode) return;
     if (data?.bodyHtml) {
+      const bodyHtml = dedupeArticleSubtitleInBody(data.bodyHtml, data.subtitle);
       const headerHtml = renderArticleViewHeader(data);
       reader.innerHTML =
-        `<div class="article-view">${headerHtml}<div class="article-view__body">${data.bodyHtml}</div></div>` +
+        `<div class="article-view">${headerHtml}<div class="article-view__body">${bodyHtml}</div></div>` +
         `<p class="entry-preview__reader-hint article-view__hint">단어를 드래그하면 번역됩니다 · <kbd>Cmd+Shift+T</kbd></p>`;
     } else {
       previewReaderLoading = false;
