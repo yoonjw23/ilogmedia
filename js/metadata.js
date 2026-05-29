@@ -700,7 +700,7 @@ function buildArticleViewData(title, bodyHtml, meta, pageUrl = "") {
   let author = meta.author || undefined;
 
   if ((!press || journalists.length === 0) && bodyHtml) {
-    const fromBody = extractMetaFromArticleBody(bodyHtml);
+    const fromBody = extractMetaFromArticleBody(bodyHtml, pageUrl);
     if (!press && fromBody.press) press = fromBody.press;
     if (journalists.length === 0 && fromBody.journalists.length > 0) {
       journalists = fromBody.journalists;

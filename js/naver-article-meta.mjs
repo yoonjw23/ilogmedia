@@ -47,62 +47,32 @@ const PRESS_BY_OID = {
   "449": "채널A",
   "586": "시사저널",
   "629": "비즈워치",
-  "656": "대전일보",
-  "658": "국제신문",
-  "660": "kbc광주방송",
-  "662": "농민신문",
-  "666": "경기일보",
-  "667": "인천일보",
-  "668": "부산일보",
-  "669": "강원도민일보",
-  "670": "대구일보",
-  "671": "광주일보",
-  "673": "충북일보",
-  "674": "경남신문",
-  "675": "전북일보",
-  "676": "제민일보",
-  "677": "강원일보",
-  "678": "경북매일",
-  "679": "전남일보",
-  "680": "제주일보",
-  "681": "충청일보",
-  "682": "경인일보",
-  "683": "충청타임즈",
-  "684": "경남도민일보",
-  "685": "전라일보",
-  "686": "경북도민일보",
-  "687": "강원도민일보",
-  "688": "충북도민일보",
-  "689": "전남도민일보",
-  "690": "제주도민일보",
 };
+
+const JOURNALIST_ROLES = "특파원|기자|통신원|객원기자|인턴기자|편집위원|논설위원";
 
 /**
  * @param {string} html
  * @param {string} [baseUrl]
  */
 export function extractNaverArticleMeta(html, baseUrl = "") {
+  const headerHtml = extractHeaderHtml(html);
   const pressBlock = extractClassBlock(html, "media_end_head_top");
   const pressLogo = resolveUrl(extractPressLogo(html, pressBlock), baseUrl);
-  const byline = extractFromDicAreaByline(html);
 
   let press =
     extractPressName(html, pressBlock) ||
     cleanPressName(metaContent(html, "og:article:author")) ||
     cleanPressName(metaContent(html, "article:author")) ||
     extractJsonLdPublisher(html) ||
-    byline.press ||
     extractPressFromOid(baseUrl) ||
     null;
 
-  let journalists = extractJournalists(html, baseUrl);
-  if (journalists.length === 0 && byline.journalists.length > 0) {
-    journalists = byline.journalists;
-  }
+  let journalists = extractJournalists(html, baseUrl, headerHtml);
 
-  const jsonAuthors = extractJsonLdAuthors(html);
-  if (journalists.length === 0 && jsonAuthors.length > 0) {
-    journalists = jsonAuthors.map((name) => ({ name, role: "기자", photo: null }));
+  if (!press) {
+    const byline = extractFromDicAreaByline(html);
+    press = byline.press;
   }
 
   const author =
@@ -140,6 +110,12 @@ export function extractNaverArticleMeta(html, baseUrl = "") {
   };
 }
 
+/** @param {string} html @param {string} [baseUrl] */
+function extractHeaderHtml(html) {
+  const idx = html.search(/\bid=["']dic_area["']/i);
+  return idx > 0 ? html.slice(0, idx) : html.slice(0, 120000);
+}
+
 function metaContent(html, key) {
   const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const patterns = [
@@ -159,6 +135,7 @@ function cleanPressName(raw) {
     .replace(/\s*\|\s*네이버\s*$/i, "")
     .replace(/\s*-\s*네이버\s*뉴스\s*$/i, "")
     .trim();
+  if (/^[가-힣]{2,4}\s*(기자|특파원|통신원)$/i.test(name)) return null;
   return name || null;
 }
 
@@ -183,12 +160,22 @@ export function extractPressFromOid(baseUrl) {
   return PRESS_BY_OID[m[1]] || null;
 }
 
-/** 서버가 내려준 본문 HTML만 있을 때 재추출 */
-export function extractMetaFromArticleBody(bodyHtml) {
-  return extractFromDicAreaByline(`<article id="dic_area">${bodyHtml}</article>`);
+/** 서버가 내려준 본문 HTML만 있을 때 — 이름만 보조 추출, 직함은 본문에서 추측하지 않음 */
+export function extractMetaFromArticleBody(bodyHtml, pageUrl = "") {
+  const byline = extractFromDicAreaByline(`<article id="dic_area">${bodyHtml}</article>`);
+  if (byline.journalists.length > 0) {
+    byline.journalists = byline.journalists.map((j) => ({
+      ...j,
+      role: j.role === "특파원" ? "기자" : j.role,
+    }));
+  }
+  return {
+    press: byline.press || extractPressFromOid(pageUrl) || null,
+    journalists: byline.journalists,
+  };
 }
 
-/** 본문 첫 줄 (도쿄=연합뉴스) 이도연 특파원 = 패턴 */
+/** @param {string} html */
 function extractFromDicAreaByline(html) {
   const inner = extractDicArea(html);
   if (!inner) return { press: null, journalists: [] };
@@ -199,8 +186,9 @@ function extractFromDicAreaByline(html) {
     .replace(/（/g, "(")
     .replace(/）/g, ")");
 
-  const wireRe =
-    /\([^)=]+=\s*([^)]+?)\)\s*([가-힣·]{2,10})\s*(특파원|기자|통신원|객원기자|인턴기자)\s*=/;
+  const wireRe = new RegExp(
+    `\\([^)=]+=\\s*([^)]+?)\\)\\s*([가-힣·]{2,10})\\s*(${JOURNALIST_ROLES})\\s*=`
+  );
   const wireM = text.match(wireRe);
   if (wireM) {
     return {
@@ -209,7 +197,9 @@ function extractFromDicAreaByline(html) {
     };
   }
 
-  const plainRe = /([가-힣]{2,12})\s+([가-힣]{2,6})\s*(특파원|기자|통신원)\s*=/;
+  const plainRe = new RegExp(
+    `([가-힣]{2,12})\\s+([가-힣·]{2,6})\\s*(${JOURNALIST_ROLES})\\s*=`
+  );
   const plainM = text.match(plainRe);
   if (plainM) {
     return {
@@ -234,59 +224,235 @@ function extractPressLogo(html, pressBlock) {
   );
 }
 
-function extractJournalists(html, baseUrl = "") {
-  const cards = [];
-  const linkRe =
-    /<a[^>]*class=["'][^"']*media_journalistcard_link[^"']*["'][^>]*>([\s\S]*?)<\/a>/gi;
-  let m;
-  while ((m = linkRe.exec(html)) !== null) {
-    const block = m[1];
-    const name =
-      extractNamedInBlock(block, "media_journalistcard_name") ||
-      extractNamedInBlock(block, "media_journalist_name");
-    if (!name) continue;
-    const role =
-      extractNamedInBlock(block, "media_journalistcard_role") ||
-      (block.includes("기자") ? "기자" : "");
-    const photo = resolveUrl(extractImgSrc(block), baseUrl);
-    cards.push({ name, role: role || "기자", photo });
+function extractJournalists(html, baseUrl = "", headerHtml = "") {
+  const header = headerHtml || extractHeaderHtml(html);
+  const sources = [
+    extractJournalistsFromJson(html),
+    extractJournalistsFromDom(header, baseUrl),
+    extractJournalistsFromMetaTags(html),
+    extractJournalistsFromHeaderScan(header),
+    extractJsonLdAuthorsAsJournalists(html),
+  ];
+
+  for (const list of sources) {
+    if (list.length > 0) return dedupeJournalists(list);
   }
 
+  const bodyByline = extractFromDicAreaByline(html);
+  if (bodyByline.journalists.length === 0) return [];
+
+  return bodyByline.journalists.map((j) => {
+    const headerRole = findRoleForNameInHeader(header, j.name);
+    return {
+      ...j,
+      role: headerRole || (j.role === "특파원" ? "기자" : j.role),
+    };
+  });
+}
+
+function findRoleForNameInHeader(headerHtml, name) {
+  if (!name || !headerHtml) return null;
+  const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`${esc}\\s*(${JOURNALIST_ROLES})`, "i");
+  const m = headerHtml.match(re);
+  return m?.[1] || null;
+}
+
+function extractJournalistsFromJson(html) {
+  const cards = [];
+  let m;
+  const chunkRe = /"journalistCards"\s*:\s*\[([\s\S]*?)\]\s*,/gi;
+  let chunkM;
+  while ((chunkM = chunkRe.exec(html)) !== null) {
+    parseJournalistObjects(chunkM[1], cards);
+  }
+
+  const reportersRe = /"reporters"\s*:\s*\[([\s\S]*?)\]\s*,/gi;
+  while ((chunkM = reportersRe.exec(html)) !== null) {
+    parseJournalistObjects(chunkM[1], cards);
+  }
+
+  const bylineM = html.match(/"byline"\s*:\s*"([^"]+)"/i);
+  if (bylineM?.[1]) {
+    const parsed = parseNameRoleText(bylineM[1]);
+    if (parsed) cards.push({ ...parsed, photo: null });
+  }
+
+  const jNameRe = /"journalistName"\s*:\s*"([가-힣·]{2,10})"/gi;
+  while ((m = jNameRe.exec(html)) !== null) {
+    const name = decodeEntities(m[1].trim());
+    const nearby = html.slice(m.index, m.index + 400);
+    const roleM = nearby.match(new RegExp(`"journalistRole"\\s*:\\s*"(${JOURNALIST_ROLES})"`, "i"));
+    cards.push({ name, role: roleM?.[1] || "기자", photo: null });
+  }
+
+  return dedupeJournalists(cards);
+}
+
+function parseJournalistObjects(chunk, out) {
+  const objRe = /\{[^{}]*"name"\s*:\s*"([^"]+)"[^{}]*\}/gi;
+  let m;
+  while ((m = objRe.exec(chunk)) !== null) {
+    const obj = m[0];
+    const name = decodeEntities(m[1].trim());
+    if (!name || name.length > 12) continue;
+    const roleM = obj.match(new RegExp(`"role"\\s*:\\s*"(${JOURNALIST_ROLES})"`, "i"));
+    const role = roleM?.[1] || "기자";
+    const photoM = obj.match(/"(?:imageUrl|profileImage|thumbnail)"\s*:\s*"([^"]+)"/i);
+    out.push({ name, role, photo: photoM?.[1] || null });
+  }
+}
+
+function extractJournalistsFromDom(html, baseUrl) {
+  const cards = [];
+
+  const nameClassRe =
+    /class=["'][^"']*(?:media_end_head_journalist_name|media_journalistcard_name|media_journalist_name)[^"']*["'][^>]*>([^<]+)</gi;
+  const roleClassRe =
+    /class=["'][^"']*(?:media_end_head_journalist_role|media_journalistcard_role|media_journalist_role)[^"']*["'][^>]*>([^<]+)</gi;
+
+  const names = [];
+  const roles = [];
+  let m;
+  while ((m = nameClassRe.exec(html)) !== null) {
+    const name = decodeEntities(m[1].trim());
+    if (name && name.length <= 12) names.push(name);
+  }
+  while ((m = roleClassRe.exec(html)) !== null) {
+    roles.push(decodeEntities(m[1].trim()));
+  }
+
+  for (let i = 0; i < names.length; i++) {
+    cards.push({
+      name: names[i],
+      role: roles[i] || "기자",
+      photo: null,
+    });
+  }
+  if (cards.length > 0) return dedupeJournalists(cards);
+
+  const linkRe =
+    /<a[^>]*class=["'][^"']*media_journalistcard_link[^"']*["'][^>]*>([\s\S]*?)<\/a>/gi;
+  while ((m = linkRe.exec(html)) !== null) {
+    const block = m[1];
+    let name =
+      extractNamedInBlock(block, "media_journalistcard_name") ||
+      extractNamedInBlock(block, "media_journalist_name") ||
+      extractNamedInBlock(block, "media_end_head_journalist_name");
+    let role =
+      extractNamedInBlock(block, "media_journalistcard_role") ||
+      extractNamedInBlock(block, "media_journalist_role") ||
+      extractNamedInBlock(block, "media_end_head_journalist_role") ||
+      "";
+
+    if (!name) {
+      const em = block.match(/<(?:em|strong|span)[^>]*>([가-힣·]{2,10})<\/(?:em|strong|span)>/i);
+      if (em?.[1]) name = decodeEntities(em[1].trim());
+    }
+    if (!role) {
+      const roleTag = block.match(
+        new RegExp(`<(?:em|strong|span)[^>]*>(${JOURNALIST_ROLES})<\\/(?:em|strong|span)>`, "i")
+      );
+      if (roleTag?.[1]) role = roleTag[1];
+    }
+
+    if (!name) continue;
+    cards.push({
+      name,
+      role: role || "기자",
+      photo: resolveUrl(extractImgSrc(block), baseUrl),
+    });
+  }
   if (cards.length > 0) return dedupeJournalists(cards);
 
   const headJournalist = extractClassBlock(html, "media_end_head_journalist");
   if (headJournalist) {
-    const headText = normalizeSpaces(stripTags(headJournalist));
-    const roleM = headText.match(/([가-힣·]{2,10})\s*(특파원|기자|통신원|객원기자)/);
-    if (roleM) {
-      cards.push({ name: roleM[1], role: roleM[2], photo: resolveUrl(extractImgSrc(headJournalist), baseUrl) });
-    }
+    const parsed = parseJournalistBlock(headJournalist, baseUrl);
+    if (parsed.length > 0) return parsed;
   }
 
   const legacyRe = /class=["'][^"']*media_journalist[^"']*["'][^>]*>([^<]+)</gi;
   while ((m = legacyRe.exec(html)) !== null) {
-    const raw = decodeEntities(m[1].trim());
-    const roleM = raw.match(/^([가-힣·]{2,10})\s*(특파원|기자|통신원)$/);
-    if (roleM) {
-      cards.push({ name: roleM[1], role: roleM[2], photo: null });
-      continue;
-    }
-    const name = raw.replace(/\s*(기자|특파원)\s*$/, "");
-    if (name && name.length <= 12) {
-      cards.push({ name, role: raw.includes("특파원") ? "특파원" : "기자", photo: null });
-    }
-  }
-
-  if (cards.length === 0) {
-    const nameM = html.match(
-      /class=["'][^"']*media_end_head_journalist[^"']*["'][^>]*>[\s\S]{0,500}?([가-힣·]{2,10})\s*(특파원|기자)/i
-    );
-    if (nameM?.[1]) {
-      cards.push({ name: nameM[1], role: nameM[2] || "기자", photo: null });
-    }
+    const parsed = parseNameRoleText(decodeEntities(m[1].trim()));
+    if (parsed) cards.push({ ...parsed, photo: null });
   }
 
   return dedupeJournalists(cards);
+}
+
+function parseJournalistBlock(block, baseUrl) {
+  const cards = [];
+  const photo = resolveUrl(extractImgSrc(block), baseUrl);
+  const nameFromClass =
+    extractNamedInBlock(block, "media_end_head_journalist_name") ||
+    extractNamedInBlock(block, "media_journalistcard_name");
+  const roleFromClass =
+    extractNamedInBlock(block, "media_end_head_journalist_role") ||
+    extractNamedInBlock(block, "media_journalistcard_role");
+
+  if (nameFromClass) {
+    cards.push({ name: nameFromClass, role: roleFromClass || "기자", photo });
+    return cards;
+  }
+
+  const text = normalizeSpaces(stripTags(block));
+  const parsed = parseNameRoleText(text);
+  if (parsed) cards.push({ ...parsed, photo });
+  return cards;
+}
+
+function extractJournalistsFromMetaTags(html) {
+  const cards = [];
+  for (const key of ["dable:author", "author", "byline"]) {
+    const raw = metaContent(html, key);
+    if (!raw) continue;
+    const parsed = parseNameRoleText(raw);
+    if (parsed) cards.push({ ...parsed, photo: null });
+  }
+  return dedupeJournalists(cards);
+}
+
+function extractJournalistsFromHeaderScan(headerHtml) {
+  const cards = [];
+
+  const anchorRe = new RegExp(
+    `>([가-힣·]{2,5})\\s*(${JOURNALIST_ROLES})\\s*<`,
+    "gi"
+  );
+  let m;
+  while ((m = anchorRe.exec(headerHtml)) !== null) {
+    cards.push({ name: m[1], role: m[2], photo: null });
+  }
+
+  if (cards.length > 0) return dedupeJournalists(cards);
+
+  const splitTagRe = new RegExp(
+    `>([가-힣·]{2,5})<\\/(?:em|strong|span|a)>\\s*<(?:em|strong|span)[^>]*>(${JOURNALIST_ROLES})<`,
+    "gi"
+  );
+  while ((m = splitTagRe.exec(headerHtml)) !== null) {
+    cards.push({ name: m[1], role: m[2], photo: null });
+  }
+
+  return dedupeJournalists(cards);
+}
+
+function parseNameRoleText(text) {
+  if (!text) return null;
+  const cleaned = text.replace(/\s+/g, " ").trim();
+  const m = cleaned.match(new RegExp(`^([가-힣·]{2,10})\\s*(${JOURNALIST_ROLES})$`));
+  if (m) return { name: m[1], role: m[2] };
+  if (/^[가-힣·]{2,10}$/.test(cleaned)) return { name: cleaned, role: "기자" };
+  return null;
+}
+
+function extractJsonLdAuthorsAsJournalists(html) {
+  return extractJsonLdAuthors(html).map((name) => {
+    const parsed = parseNameRoleText(name);
+    return parsed
+      ? { name: parsed.name, role: parsed.role, photo: null }
+      : { name, role: "기자", photo: null };
+  });
 }
 
 function dedupeJournalists(list) {
@@ -331,14 +497,10 @@ function extractDateLabels(html, dateBlock) {
   let modifiedLabel = null;
 
   const inputM = text.match(inputRe);
-  if (inputM) {
-    publishedLabel = formatNaverDateLabel("입력", inputM);
-  }
+  if (inputM) publishedLabel = formatNaverDateLabel("입력", inputM);
 
   const modM = text.match(modRe);
-  if (modM) {
-    modifiedLabel = formatNaverDateLabel("수정", modM);
-  }
+  if (modM) modifiedLabel = formatNaverDateLabel("수정", modM);
 
   if (!publishedLabel) {
     const iso = extractJsonLdDate(html, "datePublished");
@@ -395,7 +557,7 @@ function extractJsonLdAuthors(html) {
   const singleRe = /"author"\s*:\s*\{[^}]*"name"\s*:\s*"([^"]+)"/gi;
   while ((m = singleRe.exec(html)) !== null) {
     const name = decodeEntities(m[1].trim());
-    if (name && name.length <= 12 && !names.includes(name)) names.push(name);
+    if (name && name.length <= 20 && !names.includes(name)) names.push(name);
   }
   return names;
 }
