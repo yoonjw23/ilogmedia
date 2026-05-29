@@ -523,7 +523,10 @@ function renderArticleViewHeader(data) {
       })
       .join("")}</div>`;
   } else if (authorFallback) {
-    html += `<div class="article-view__journalists"><div class="article-view__journalist"><span class="article-view__journalist-photo article-view__journalist-photo--placeholder" aria-hidden="true"></span><span class="article-view__journalist-name">${escapeHtml(authorFallback)}</span><span class="article-view__journalist-role">기자</span></div></div>`;
+    const roleM = authorFallback.match(/^(.+?)\s+(특파원|기자|통신원|객원기자)$/);
+    const name = roleM ? roleM[1] : authorFallback;
+    const role = roleM ? roleM[2] : "기자";
+    html += `<div class="article-view__journalists"><div class="article-view__journalist"><span class="article-view__journalist-photo article-view__journalist-photo--placeholder" aria-hidden="true"></span><span class="article-view__journalist-name">${escapeHtml(name)}</span><span class="article-view__journalist-role">${escapeHtml(role)}</span></div></div>`;
   }
 
   const dates = [];

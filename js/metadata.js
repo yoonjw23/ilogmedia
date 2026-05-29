@@ -1,7 +1,11 @@
 /**
  * URL 메타데이터 (유튜브 oEmbed, 기사 HTML og/meta 파싱)
  */
-import { extractNaverArticleMeta } from "./naver-article-meta.mjs";
+import {
+  extractNaverArticleMeta,
+  extractMetaFromArticleBody,
+  extractPressFromOid,
+} from "./naver-article-meta.mjs";
 
 /** @typedef {'youtube'|'article'|'podcast'|'book'|'other'} MediaType */
 
@@ -656,7 +660,7 @@ export async function fetchArticleViewerHtml(url) {
       if (data.ok && data.bodyHtml) {
         const bodyHtml = sanitizeArticleHtml(data.bodyHtml, url);
         if (bodyHtml.length >= 40) {
-          return buildArticleViewData(data.title, bodyHtml, data);
+          return buildArticleViewData(data.title, bodyHtml, data, data.finalUrl || url);
         }
       }
     }
@@ -671,21 +675,46 @@ export async function fetchArticleViewerHtml(url) {
     const bodyHtml = sanitizeArticleHtml(inner, url);
     if (!bodyHtml || bodyHtml.length < 40) return null;
     const meta = extractNaverArticleMeta(html, url);
-    return buildArticleViewData(extractTitleFromHtml(html), bodyHtml, {
-      ...meta,
-      publishedAt:
-        meta.publishedAt ||
-        extractPublishedDateFromHtml(html) ||
-        extractPublishedDateFromUrl(url) ||
-        undefined,
-    });
+    return buildArticleViewData(
+      extractTitleFromHtml(html),
+      bodyHtml,
+      {
+        ...meta,
+        publishedAt:
+          meta.publishedAt ||
+          extractPublishedDateFromHtml(html) ||
+          extractPublishedDateFromUrl(url) ||
+          undefined,
+      },
+      url
+    );
   } catch {
     return null;
   }
 }
 
-/** @param {string | undefined} title @param {string} bodyHtml @param {Record<string, unknown>} meta */
-function buildArticleViewData(title, bodyHtml, meta) {
+/** @param {string | undefined} title @param {string} bodyHtml @param {Record<string, unknown>} meta @param {string} [pageUrl] */
+function buildArticleViewData(title, bodyHtml, meta, pageUrl = "") {
+  let press = meta.press || undefined;
+  let journalists = Array.isArray(meta.journalists) ? meta.journalists : [];
+  let author = meta.author || undefined;
+
+  if ((!press || journalists.length === 0) && bodyHtml) {
+    const fromBody = extractMetaFromArticleBody(bodyHtml);
+    if (!press && fromBody.press) press = fromBody.press;
+    if (journalists.length === 0 && fromBody.journalists.length > 0) {
+      journalists = fromBody.journalists;
+    }
+  }
+
+  if (!press && pageUrl) {
+    press = extractPressFromOid(pageUrl) || press;
+  }
+
+  if (journalists.length > 0) {
+    author = journalists.map((j) => (j.role ? `${j.name} ${j.role}` : j.name)).join(", ");
+  }
+
   return {
     title: title || undefined,
     bodyHtml,
@@ -693,10 +722,10 @@ function buildArticleViewData(title, bodyHtml, meta) {
     modifiedAt: meta.modifiedAt || undefined,
     publishedLabel: meta.publishedLabel || undefined,
     modifiedLabel: meta.modifiedLabel || undefined,
-    press: meta.press || undefined,
+    press,
     pressLogo: meta.pressLogo || undefined,
-    journalists: meta.journalists || undefined,
-    author: meta.author || undefined,
+    journalists: journalists.length > 0 ? journalists : undefined,
+    author,
     subtitle: meta.subtitle || undefined,
   };
 }
