@@ -18,6 +18,7 @@ import {
   MEDIA_LABELS,
   MEDIA_ICONS,
 } from "./storage.js";
+import { normalizeNaverJournalistRole } from "./naver-article-meta.mjs";
 import {
   detectMediaType,
   fetchMetadata,
@@ -518,14 +519,16 @@ function renderArticleViewHeader(data) {
         const photo = j.photo
           ? `<img class="article-view__journalist-photo" src="${escapeHtml(j.photo)}" alt="" loading="lazy" referrerpolicy="no-referrer" />`
           : `<span class="article-view__journalist-photo article-view__journalist-photo--placeholder" aria-hidden="true"></span>`;
-        const role = j.role ? `<span class="article-view__journalist-role">${escapeHtml(j.role)}</span>` : "";
+        const role = j.role
+          ? `<span class="article-view__journalist-role">${escapeHtml(normalizeNaverJournalistRole(j.role))}</span>`
+          : "";
         return `<div class="article-view__journalist">${photo}<span class="article-view__journalist-name">${escapeHtml(j.name)}</span>${role}</div>`;
       })
       .join("")}</div>`;
   } else if (authorFallback) {
     const roleM = authorFallback.match(/^(.+?)\s+(특파원|기자|통신원|객원기자)$/);
     const name = roleM ? roleM[1] : authorFallback;
-    const role = roleM ? roleM[2] : "기자";
+    const role = normalizeNaverJournalistRole(roleM ? roleM[2] : "기자");
     html += `<div class="article-view__journalists"><div class="article-view__journalist"><span class="article-view__journalist-photo article-view__journalist-photo--placeholder" aria-hidden="true"></span><span class="article-view__journalist-name">${escapeHtml(name)}</span><span class="article-view__journalist-role">${escapeHtml(role)}</span></div></div>`;
   }
 

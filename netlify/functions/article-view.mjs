@@ -4,8 +4,10 @@
  */
 import { extractNaverArticleMeta } from "../../js/naver-article-meta.mjs";
 
-const UA =
+const UA_DESKTOP =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+const UA_MOBILE =
+  "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
 
 const HEADERS = {
   "Content-Type": "application/json",
@@ -27,20 +29,12 @@ export default async (req) => {
       return json({ ok: false, error: "unsupported host" }, 400);
     }
 
-    const res = await fetch(target, {
-      headers: {
-        "User-Agent": UA,
-        "Accept-Language": "ko-KR,ko;q=0.9",
-        Accept: "text/html,application/xhtml+xml",
-      },
-      redirect: "follow",
-    });
-
-    if (!res.ok) {
-      return json({ ok: false, error: `fetch ${res.status}` }, 502);
+    const fetched = await fetchArticlePage(target);
+    if (!fetched) {
+      return json({ ok: false, error: "fetch failed" }, 502);
     }
 
-    const html = await res.text();
+    const { html, finalUrl } = fetched;
     const inner = extractNaverArticleInnerHtml(html);
     if (!inner) {
       return json({ ok: false, error: "article body not found" }, 404);
@@ -51,7 +45,6 @@ export default async (req) => {
       return json({ ok: false, error: "empty body" }, 404);
     }
 
-    const finalUrl = res.url || target;
     const meta = extractNaverArticleMeta(html, finalUrl);
 
     return json({
@@ -68,6 +61,46 @@ export default async (req) => {
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: HEADERS });
+}
+
+async function fetchArticlePage(url) {
+  const attempts = [
+    { ua: UA_MOBILE, referer: "https://m.naver.com/" },
+    { ua: UA_DESKTOP, referer: "https://www.naver.com/" },
+  ];
+  for (const { ua, referer } of attempts) {
+    try {
+      const res = await fetch(url, {
+        headers: {
+          "User-Agent": ua,
+          "Accept-Language": "ko-KR,ko;q=0.9",
+          Accept: "text/html,application/xhtml+xml",
+          Referer: referer,
+        },
+        redirect: "follow",
+      });
+      if (res.ok) {
+        const html = await res.text();
+        if (html.length > 500) return { html, finalUrl: res.url || url };
+      }
+    } catch {
+      /* try next */
+    }
+  }
+
+  try {
+    const jina = await fetch(`https://r.jina.ai/${url}`, {
+      headers: { Accept: "text/html" },
+    });
+    if (jina.ok) {
+      const html = await jina.text();
+      if (html.length > 500) return { html, finalUrl: url };
+    }
+  } catch {
+    /* ignore */
+  }
+
+  return null;
 }
 
 function extractTitle(html) {

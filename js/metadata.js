@@ -3,8 +3,7 @@
  */
 import {
   extractNaverArticleMeta,
-  extractMetaFromArticleBody,
-  extractPressFromOid,
+  enrichArticleMeta,
 } from "./naver-article-meta.mjs";
 
 /** @typedef {'youtube'|'article'|'podcast'|'book'|'other'} MediaType */
@@ -695,25 +694,7 @@ export async function fetchArticleViewerHtml(url) {
 
 /** @param {string | undefined} title @param {string} bodyHtml @param {Record<string, unknown>} meta @param {string} [pageUrl] */
 function buildArticleViewData(title, bodyHtml, meta, pageUrl = "") {
-  let press = meta.press || undefined;
-  let journalists = Array.isArray(meta.journalists) ? meta.journalists : [];
-  let author = meta.author || undefined;
-
-  if ((!press || journalists.length === 0) && bodyHtml) {
-    const fromBody = extractMetaFromArticleBody(bodyHtml, pageUrl);
-    if (!press && fromBody.press) press = fromBody.press;
-    if (journalists.length === 0 && fromBody.journalists.length > 0) {
-      journalists = fromBody.journalists;
-    }
-  }
-
-  if (!press && pageUrl) {
-    press = extractPressFromOid(pageUrl) || press;
-  }
-
-  if (journalists.length > 0) {
-    author = journalists.map((j) => (j.role ? `${j.name} ${j.role}` : j.name)).join(", ");
-  }
+  const enriched = enrichArticleMeta(meta, bodyHtml, pageUrl);
 
   return {
     title: title || undefined,
@@ -722,10 +703,10 @@ function buildArticleViewData(title, bodyHtml, meta, pageUrl = "") {
     modifiedAt: meta.modifiedAt || undefined,
     publishedLabel: meta.publishedLabel || undefined,
     modifiedLabel: meta.modifiedLabel || undefined,
-    press,
+    press: enriched.press || undefined,
     pressLogo: meta.pressLogo || undefined,
-    journalists: journalists.length > 0 ? journalists : undefined,
-    author,
+    journalists: enriched.journalists.length > 0 ? enriched.journalists : undefined,
+    author: enriched.author || undefined,
     subtitle: meta.subtitle || undefined,
   };
 }

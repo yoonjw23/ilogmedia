@@ -51,6 +51,91 @@ const PRESS_BY_OID = {
 
 const JOURNALIST_ROLES = "특파원|기자|통신원|객원기자|인턴기자|편집위원|논설위원";
 
+/** 네이버 기사 화면 표기 — 와이어 본문 '특파원' 대신 헤더와 같이 '기자'로 통일 */
+export function normalizeNaverJournalistRole(role) {
+  if (!role || role === "특파원") return "기자";
+  return role;
+}
+
+/** @param {{ name: string, role?: string, photo?: string | null }[]} list */
+export function normalizeJournalists(list) {
+  return list.map((j) => ({
+    ...j,
+    role: normalizeNaverJournalistRole(j.role),
+  }));
+}
+
+/**
+ * @param {string} html
+ * @param {string} [pageUrl]
+ */
+export function extractPressFromHtml(html, pageUrl = "") {
+  return (
+    extractPressFromOid(pageUrl) ||
+    extractPressFromOid(extractArticleUrlFromHtml(html)) ||
+    (() => {
+      const m =
+        html.match(/"officeId"\s*:\s*"(\d{3})"/i) ||
+        html.match(/[?&]oid=(\d{3})\b/i) ||
+        html.match(/\/article\/(\d{3})\//i);
+      return m?.[1] ? PRESS_BY_OID[m[1]] || null : null;
+    })()
+  );
+}
+
+function extractArticleUrlFromHtml(html) {
+  const m = html.match(
+    /https?:\/\/n\.news\.naver\.com\/mnews\/article\/\d{3}\/\d+/i
+  );
+  return m?.[0] || "";
+}
+
+/**
+ * 서버·프록시 응답을 최종 보정 (언론사·기자·직함)
+ * @param {Record<string, unknown>} meta
+ * @param {string} [bodyHtml]
+ * @param {string} [pageUrl]
+ */
+export function enrichArticleMeta(meta, bodyHtml = "", pageUrl = "") {
+  let press =
+    meta.press ||
+    extractPressFromHtml(bodyHtml, pageUrl) ||
+    extractPressFromOid(pageUrl) ||
+    null;
+
+  let journalists = normalizeJournalists(
+    Array.isArray(meta.journalists) ? meta.journalists : []
+  );
+
+  if (bodyHtml) {
+    const fromBody = extractMetaFromArticleBody(bodyHtml, pageUrl);
+    if (!press && fromBody.press) press = fromBody.press;
+    if (journalists.length === 0 && fromBody.journalists.length > 0) {
+      journalists = normalizeJournalists(fromBody.journalists);
+    } else if (journalists.length > 0 && fromBody.journalists.length > 0) {
+      const bodyJ = fromBody.journalists[0];
+      journalists = journalists.map((j) =>
+        j.name === bodyJ.name ? { ...j, role: normalizeNaverJournalistRole(j.role) } : j
+      );
+    }
+    if (journalists.length === 0) {
+      const plain = extractJournalistFromPlainSnippet(bodyHtml);
+      if (plain) journalists = [plain];
+    }
+  }
+
+  if (!press) {
+    press = extractPressFromOid(pageUrl) || press;
+  }
+
+  const author =
+    journalists.length > 0
+      ? journalists.map((j) => `${j.name} ${j.role}`).join(", ")
+      : meta.author || null;
+
+  return { press, journalists, author };
+}
+
 /**
  * @param {string} html
  * @param {string} [baseUrl]
@@ -65,10 +150,10 @@ export function extractNaverArticleMeta(html, baseUrl = "") {
     cleanPressName(metaContent(html, "og:article:author")) ||
     cleanPressName(metaContent(html, "article:author")) ||
     extractJsonLdPublisher(html) ||
-    extractPressFromOid(baseUrl) ||
+    extractPressFromHtml(html, baseUrl) ||
     null;
 
-  let journalists = extractJournalists(html, baseUrl, headerHtml);
+  let journalists = normalizeJournalists(extractJournalists(html, baseUrl, headerHtml));
 
   if (!press) {
     const byline = extractFromDicAreaByline(html);
@@ -77,7 +162,7 @@ export function extractNaverArticleMeta(html, baseUrl = "") {
 
   const author =
     journalists.length > 0
-      ? journalists.map((j) => (j.role ? `${j.name} ${j.role}` : j.name)).join(", ")
+      ? journalists.map((j) => `${j.name} ${j.role}`).join(", ")
       : null;
 
   const publishedAt =
@@ -110,10 +195,20 @@ export function extractNaverArticleMeta(html, baseUrl = "") {
   };
 }
 
-/** @param {string} html @param {string} [baseUrl] */
+/** @param {string} html */
 function extractHeaderHtml(html) {
-  const idx = html.search(/\bid=["']dic_area["']/i);
-  return idx > 0 ? html.slice(0, idx) : html.slice(0, 120000);
+  const headStart = html.search(/media_end_head/i);
+  const dicIdx = html.search(/\bid=["']dic_area["']/i);
+  if (headStart >= 0 && dicIdx > headStart) {
+    return html.slice(headStart, dicIdx);
+  }
+  if (headStart >= 0) {
+    return html.slice(headStart, headStart + 20000);
+  }
+  if (dicIdx > 0) {
+    return html.slice(0, dicIdx);
+  }
+  return "";
 }
 
 function metaContent(html, key) {
@@ -158,6 +253,23 @@ export function extractPressFromOid(baseUrl) {
   const m = baseUrl.match(/\/article\/(\d{3})\//);
   if (!m) return null;
   return PRESS_BY_OID[m[1]] || null;
+}
+
+function extractJournalistFromPlainSnippet(htmlOrText) {
+  const t = normalizeSpaces(stripTags(htmlOrText)).slice(0, 1200);
+  if (!t) return null;
+  const wireRe = new RegExp(
+    `\\([^)=]+=\\s*[^)]+\\)\\s*([가-힣·]{2,10})\\s*(${JOURNALIST_ROLES})`
+  );
+  const wireM = t.match(wireRe);
+  if (wireM) {
+    return { name: wireM[1], role: normalizeNaverJournalistRole(wireM[2]), photo: null };
+  }
+  const m = t.match(new RegExp(`([가-힣·]{2,5})\\s+(${JOURNALIST_ROLES})`));
+  if (m) {
+    return { name: m[1], role: normalizeNaverJournalistRole(m[2]), photo: null };
+  }
+  return null;
 }
 
 /** 서버가 내려준 본문 HTML만 있을 때 — 이름만 보조 추출, 직함은 본문에서 추측하지 않음 */
@@ -235,19 +347,21 @@ function extractJournalists(html, baseUrl = "", headerHtml = "") {
   ];
 
   for (const list of sources) {
-    if (list.length > 0) return dedupeJournalists(list);
+    if (list.length > 0) return normalizeJournalists(dedupeJournalists(list));
   }
 
   const bodyByline = extractFromDicAreaByline(html);
   if (bodyByline.journalists.length === 0) return [];
 
-  return bodyByline.journalists.map((j) => {
-    const headerRole = findRoleForNameInHeader(header, j.name);
-    return {
-      ...j,
-      role: headerRole || (j.role === "특파원" ? "기자" : j.role),
-    };
-  });
+  return normalizeJournalists(
+    bodyByline.journalists.map((j) => {
+      const headerRole = findRoleForNameInHeader(header, j.name);
+      return {
+        ...j,
+        role: headerRole || j.role,
+      };
+    })
+  );
 }
 
 function findRoleForNameInHeader(headerHtml, name) {
@@ -269,6 +383,12 @@ function extractJournalistsFromJson(html) {
 
   const reportersRe = /"reporters"\s*:\s*\[([\s\S]*?)\]\s*,/gi;
   while ((chunkM = reportersRe.exec(html)) !== null) {
+    parseJournalistObjects(chunkM[1], cards);
+  }
+
+  const listRe =
+    /"(?:journalistList|journalists|reporterList)"\s*:\s*\[([\s\S]*?)\]\s*[,}]/gi;
+  while ((chunkM = listRe.exec(html)) !== null) {
     parseJournalistObjects(chunkM[1], cards);
   }
 
@@ -413,6 +533,9 @@ function extractJournalistsFromMetaTags(html) {
 }
 
 function extractJournalistsFromHeaderScan(headerHtml) {
+  if (!headerHtml || headerHtml.length < 20) return [];
+  if (!/journalist|media_end_head|byline|reporter/i.test(headerHtml)) return [];
+
   const cards = [];
 
   const anchorRe = new RegExp(
