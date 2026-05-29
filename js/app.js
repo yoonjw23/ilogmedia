@@ -477,6 +477,32 @@ function clearContentPreview() {
   if (articleIframe) { articleIframe.removeAttribute("src"); articleIframe.hidden = true; }
 }
 
+function renderArticleViewHeader(data) {
+  const title = data.title || $("#entry-title").value.trim() || "";
+  const publishedLabel =
+    data.publishedLabel ||
+    (data.publishedAt ? formatDate(data.publishedAt) : "") ||
+    ($("#entry-published").value ? formatDate($("#entry-published").value) : "");
+  const press = data.press || "";
+  const author = data.author || "";
+
+  const metaItems = [];
+  if (publishedLabel) metaItems.push(publishedLabel);
+  if (press) metaItems.push(press);
+  if (author) metaItems.push(`기자 ${author}`);
+
+  let html = "";
+  if (title) {
+    html += `<h1 class="article-view__title">${escapeHtml(title)}</h1>`;
+  }
+  if (metaItems.length > 0) {
+    html += `<div class="article-view__meta">${metaItems
+      .map((item) => `<span class="article-view__meta-item">${escapeHtml(item)}</span>`)
+      .join("")}</div>`;
+  }
+  return html;
+}
+
 async function loadPreviewArticle(url) {
   const reader = $("#entry-preview-reader");
   const iframe = $("#entry-preview-iframe");
@@ -497,11 +523,9 @@ async function loadPreviewArticle(url) {
     const data = await fetchArticleViewerHtml(url);
     if (previewReaderUrl !== url || previewTextMode) return;
     if (data?.bodyHtml) {
-      const titleHtml = data.title
-        ? `<h1 class="article-view__title">${escapeHtml(data.title)}</h1>`
-        : "";
+      const headerHtml = renderArticleViewHeader(data);
       reader.innerHTML =
-        `<div class="article-view">${titleHtml}<div class="article-view__body">${data.bodyHtml}</div></div>` +
+        `<div class="article-view">${headerHtml}<div class="article-view__body">${data.bodyHtml}</div></div>` +
         `<p class="entry-preview__reader-hint article-view__hint">단어를 드래그하면 번역됩니다 · <kbd>Cmd+Shift+T</kbd></p>`;
     } else {
       previewReaderLoading = false;

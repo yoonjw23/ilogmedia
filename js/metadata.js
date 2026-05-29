@@ -637,7 +637,7 @@ function sanitizeArticleHtml(dirty, baseUrl) {
 /**
  * 기사 화면용 HTML (제목 + 본문)
  * @param {string} url
- * @returns {Promise<{ title?: string, bodyHtml: string } | null>}
+ * @returns {Promise<{ title?: string, bodyHtml: string, publishedAt?: string, publishedLabel?: string, press?: string, author?: string } | null>}
  */
 export async function fetchArticleViewerHtml(url) {
   if (!isNaverArticleHost(url)) return null;
@@ -655,7 +655,14 @@ export async function fetchArticleViewerHtml(url) {
       if (data.ok && data.bodyHtml) {
         const bodyHtml = sanitizeArticleHtml(data.bodyHtml, url);
         if (bodyHtml.length >= 40) {
-          return { title: data.title || undefined, bodyHtml };
+          return {
+            title: data.title || undefined,
+            bodyHtml,
+            publishedAt: data.publishedAt || undefined,
+            publishedLabel: data.publishedLabel || undefined,
+            press: data.press || undefined,
+            author: data.author || undefined,
+          };
         }
       }
     }
@@ -672,10 +679,50 @@ export async function fetchArticleViewerHtml(url) {
     return {
       title: extractTitleFromHtml(html),
       bodyHtml,
+      publishedAt:
+        extractPublishedDateFromHtml(html) ||
+        extractPublishedDateFromUrl(url) ||
+        undefined,
+      publishedLabel: extractNaverPublishedLabel(html),
+      press: extractNaverPress(html),
+      author: extractNaverAuthors(html),
     };
   } catch {
     return null;
   }
+}
+
+/** @param {string} html */
+function extractNaverPublishedLabel(html) {
+  const m = html.match(/class=["'][^"']*media_end_head_info_datestamp[^"']*["'][^>]*>([^<]+)</i);
+  if (m?.[1]) return decodeHtmlEntities(m[1].trim());
+  const input = html.match(/입력\s*(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})(?:\.\s*([^<]{0,40}))?/i);
+  if (!input) return undefined;
+  const time = input[4] ? ` ${input[4].trim()}` : "";
+  return `입력 ${input[1]}. ${input[2]}. ${input[3]}.${time}`;
+}
+
+/** @param {string} html */
+function extractNaverPress(html) {
+  return (
+    metaContent(html, "og:article:author") ||
+    (() => {
+      const m = html.match(/class=["'][^"']*media_end_head_top[^"']*["'][^>]*>[\s\S]*?alt=["']([^"']+)["']/i);
+      return m?.[1] ? decodeHtmlEntities(m[1].trim()) : undefined;
+    })()
+  );
+}
+
+/** @param {string} html */
+function extractNaverAuthors(html) {
+  const names = [];
+  const re = /class=["'][^"']*media_journalist[^"']*["'][^>]*>([^<]+)</gi;
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    const name = decodeHtmlEntities(m[1].trim());
+    if (name && !names.includes(name)) names.push(name);
+  }
+  return names.length > 0 ? names.join(", ") : undefined;
 }
 
 /** @param {string} html */

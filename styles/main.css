@@ -1121,11 +1121,32 @@ button.archive-group__label:hover {
 }
 
 .article-view__title {
-  margin: 0 0 1.25rem;
+  margin: 0 0 0.75rem;
   font-size: 1.375rem;
   font-weight: 700;
   line-height: 1.45;
   color: #111;
+}
+
+.article-view__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+  margin: 0 0 1.25rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #e5e7eb;
+  font-size: 0.875rem;
+  color: #555;
+}
+
+.article-view__meta-item::after {
+  content: "·";
+  margin-left: 0.75rem;
+  color: #bbb;
+}
+
+.article-view__meta-item:last-child::after {
+  content: none;
 }
 
 .article-view__body {
